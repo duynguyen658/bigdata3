@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local env files
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs and local runtime files
+logs/
+*.log
+*.pid
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Spark/Hadoop generated metadata
+**/_SUCCESS
+**/._SUCCESS.crc
+**/.part-*.crc
+**/*.crc
+
+# Local generated datasets and model artifacts
+data/raw/
+data/parquet/
+data/predictions/
+models/
+
+# Large local analytical file outputs
+*.parquet
+*.snappy.parquet
+*.orc
+*.avro
+
+# Packaging/build outputs
+build/
+dist/
+*.egg-info/

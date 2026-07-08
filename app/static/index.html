@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AQI Monitoring TP.HCM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="map-zone" aria-label="Ban do nhiet AQI TP.HCM">
+        <div id="map"></div>
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">AQI Monitoring</p>
+            <h1>TP.HCM</h1>
+          </div>
+          <div class="status" id="status">Dang tai du bao...</div>
+        </div>
+        <aside class="panel">
+          <div class="metric">
+            <span>AQI cao nhat</span>
+            <strong id="max-aqi">--</strong>
+          </div>
+          <label class="control">
+            <span>Du bao sau <b id="horizon-label">1h</b></span>
+            <input id="horizon" type="range" min="1" max="24" value="1" />
+          </label>
+          <label class="control">
+            <span>Mo hinh du bao</span>
+            <select id="model">
+              <option value="random_forest">Random Forest</option>
+              <option value="gbt">GBTRegressor</option>
+            </select>
+          </label>
+          <div class="legend" aria-label="Chu giai AQI">
+            <span class="good">0-50</span>
+            <span class="moderate">51-100</span>
+            <span class="sensitive">101-150</span>
+            <span class="unhealthy">151-200</span>
+            <span class="severe">201+</span>
+          </div>
+          <ol class="hotspots" id="hotspots"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
