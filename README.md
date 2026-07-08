@@ -1,33 +1,149 @@
-# AQI Monitoring TP.HCM voi OpenAQ va Spark MLlib
+# HCMC AQI Monitoring and Forecasting
 
-Project mau cho bai toan theo doi va du bao chat luong khong khi do thi tai Thanh pho Ho Chi Minh.
+A city-scale air-quality monitoring and 24-hour forecasting project for Ho Chi Minh City, Vietnam. The system ingests PM2.5 and PM10 measurements, stores them as Parquet, prepares hourly spatial time series with Apache Spark, trains Spark MLlib forecasting models, computes U.S. EPA AQI values, exposes FastAPI endpoints, and renders a Leaflet map-first dashboard.
 
-## Kien truc
+This repository is intentionally honest about what has and has not been verified. It is suitable for local development, coursework, demos, and further engineering work. It should not be described as a production realtime system unless true streaming ingestion, production serving, and operational monitoring are added and verified.
 
-1. **Thu nhan du lieu**
-   - `scripts/ingest_openaq.py` goi OpenAQ API v3 bang header `X-API-Key`.
-   - Loc vi tri trong bbox TP.HCM, uu tien PM2.5 va PM10.
-   - Khi chua co API key, chay `scripts/generate_sample_data.py` de tao du lieu mau nhu mang cam bien do thi.
+## Current Project Status
 
-2. **Luu tru column-oriented**
-   - Du lieu duoc luu Parquet tai `data/parquet/measurements`.
-   - Ingestion mac dinh append + dedup theo `sensor_id + parameter + datetime_utc`.
-   - Dataset duoc partition theo `parameter/date`.
-   - Dat `HDFS_BASE_PATH=hdfs://namenode:9000/aqi-hcmc` de route Parquet measurement qua Spark/Hadoop-compatible write path.
+| Area | Status | Notes |
+|---|---|---|
+| AQI calculation | VERIFIED | Deterministic unit tests cover PM2.5/PM10 boundaries, truncation behavior, unsupported pollutants, and combined AQI. |
+| Spark feature engineering | VERIFIED | Tests cover dense hourly regularization, true hourly lag semantics, H+1 through H+24 targets, timestamps, local timezone features, and chronological split behavior. |
+| Local Parquet storage | VERIFIED | Tests cover append, overwrite, partitioning, and deduplication by stable measurement identity. |
+| Backend APIs | VERIFIED | API tests cover current observations, forecast filtering, hotspots, metrics, and health behavior. |
+| Frontend dashboard | PARTIAL | Static map-first dashboard is implemented and `/` has been HTTP-checked; browser screenshot/visual QA is still pending. |
+| Standalone Spark training script | PARTIAL | Integration tests pass, but a full standalone local Spark training smoke run timed out on Windows before forecast/metrics completion. |
+| OpenAQ live ingestion | NOT_VERIFIED | The code supports OpenAQ API v3, but a successful authenticated live run has not been recorded in this repository state. |
+| Real HDFS cluster writes | NOT_VERIFIED | `hdfs://` paths route through Spark/Hadoop-compatible write code, but no real cluster verification has been recorded. |
 
-3. **Xu ly va phan tich**
-   - `scripts/train_forecast_spark.py` dung PySpark MLlib voi 2 model: `RandomForestRegressor` va `GBTRegressor` (Gradient Boosted Trees).
-   - Tao timeline theo gio day du, giu gap thanh null de lag 1h/3h/24h dung nghia.
-   - Tao stacked target H+1 den H+24 voi `forecast_origin_ts`, `target_ts`, `horizon_hour`.
-   - Chia train/validation/test theo thoi gian bang `target_ts` de tranh label leakage.
-   - Ghi metrics that tai `data/predictions/metrics.json`: MAE, RMSE, R2 theo model/pollutant/horizon/split.
+## What The System Does
 
-4. **API va truc quan hoa**
-   - `app/main.py` phuc vu FastAPI.
-   - API hien co: `/api/current`, `/api/forecast`, `/api/hotspots`, `/api/metrics`, `/api/health`, `/api/models`.
-   - Frontend Leaflet co Current/Forecast mode, horizon H+1..H+24, Random Forest/GBT selector, hotspots, freshness va metrics neu artifact ton tai.
+The project implements a batch AQI monitoring and forecasting pipeline:
 
-## Cai dat
+1. Ingest PM2.5 and PM10 measurements from OpenAQ API v3, or generate synthetic Ho Chi Minh City sensor data for demos.
+2. Store measurements in a Parquet data lake with append and deduplication behavior.
+3. Aggregate observations into spatial grid cells and hourly time steps.
+4. Create a dense hourly timeline before lag and lead generation so lag offsets mean true hour offsets.
+5. Build stacked multi-horizon supervised rows from H+1 through H+24.
+6. Train four intended model pipelines:
+   - Random Forest for PM2.5
+   - Random Forest for PM10
+   - GBTRegressor for PM2.5
+   - GBTRegressor for PM10
+7. Evaluate models with MAE, RMSE, and R2 by pollutant, model, horizon, and split.
+8. Generate forecast artifacts and AQI categories.
+9. Serve current, forecast, hotspot, metrics, and health data through FastAPI.
+10. Display current and forecast AQI on a Leaflet dashboard.
+
+## Architecture
+
+```text
+OpenAQ API v3 or synthetic generator
+        |
+        v
+Measurement normalization
+        |
+        v
+Parquet storage
+  - local filesystem for development
+  - Spark/Hadoop-compatible path for hdfs:// targets
+  - append + dedup
+  - partitioned by parameter/date
+        |
+        v
+Spark hourly preparation
+  - spatial grid aggregation
+  - dense hourly regularization
+  - explicit missing hours
+        |
+        v
+Feature engineering
+  - local time features in Asia/Ho_Chi_Minh
+  - lag_1h, lag_3h, lag_24h
+  - horizon_hour
+  - forecast_origin_ts
+  - target_ts
+        |
+        v
+Spark MLlib models
+  - random_forest
+  - gbt
+  - pm25 and pm10 where data is available
+        |
+        v
+Artifacts
+  - forecast JSON
+  - forecast Parquet
+  - metrics JSON
+  - Spark model directories
+        |
+        v
+FastAPI + Leaflet frontend
+```
+
+See also:
+
+- `docs/IMPLEMENTATION_PLAN.md` for the five-phase target plan.
+- `docs/ARCHITECTURE.md` for the target architecture and design rules.
+- `docs/AGENT_HANDOFF.md` for the mutable, current execution state.
+
+## Repository Layout
+
+```text
+app/
+  main.py                 FastAPI app and API endpoints
+  static/
+    index.html            Dashboard shell
+    styles.css            Dashboard styles
+    app.js                Frontend data loading and Leaflet behavior
+
+src/
+  aqi.py                  U.S. EPA AQI calculation for PM2.5 and PM10
+  config.py               Environment-driven settings
+  io.py                   Measurement Parquet read/write helpers
+  openaq_client.py        OpenAQ API v3 client
+
+scripts/
+  generate_sample_data.py Synthetic HCMC PM2.5/PM10 generator
+  ingest_openaq.py        OpenAQ ingestion CLI
+  train_forecast_spark.py Spark feature engineering, training, metrics, forecasts
+
+tests/
+  test_aqi.py                       AQI correctness tests
+  test_spark_features.py            Spark feature and horizon tests
+  test_storage_phase2.py            Storage and metrics serialization tests
+  test_api_phase3.py                FastAPI endpoint tests
+  test_train_forecast_integration.py Spark train/forecast integration smoke test
+
+docs/
+  IMPLEMENTATION_PLAN.md  Stable five-phase plan
+  ARCHITECTURE.md         Target system architecture
+  AGENT_HANDOFF.md        Mutable implementation state and verification log
+
+data/                     Local generated data and prediction artifacts, ignored by git
+models/                   Local Spark model artifacts, ignored by git
+```
+
+## Requirements
+
+The project is Python-based and currently pins:
+
+- Python 3.11 or newer is recommended.
+- FastAPI `0.116.0`
+- Uvicorn `0.35.0`
+- pandas `2.3.1`
+- pyarrow `20.0.0`
+- PySpark `4.0.0`
+- pytest `9.0.2`
+- requests `2.32.4`
+- python-dotenv `1.1.1`
+
+Install Java before running Spark locally. PySpark requires a working Java runtime. Java 17 is a safe default for modern Spark development environments.
+
+## Setup
+
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
@@ -36,78 +152,696 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Sua `.env`:
+### macOS or Linux
 
-```env
-OPENAQ_API_KEY=your-key
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-OpenAQ API v3 can API key. Dang ky key tai OpenAQ Explorer.
+Then edit `.env` as needed.
 
-## Chay nhanh voi du lieu mau
+## Configuration
 
-Dung luong du lieu mau du de demo heatmap va train Spark:
+The application reads `.env` through `src/config.py`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENAQ_API_KEY` | empty | Required for real OpenAQ ingestion. Synthetic data does not need it. |
+| `OPENAQ_BASE_URL` | `https://api.openaq.org/v3` | OpenAQ API base URL. |
+| `HCMC_BBOX` | `106.45,10.35,107.05,11.15` | Rough Ho Chi Minh City bounding box as `min_lon,min_lat,max_lon,max_lat`. |
+| `HDFS_BASE_PATH` | empty | Optional base path such as `hdfs://namenode:9000/aqi-hcmc`. Leave empty for local development. |
+| `MEASUREMENTS_PATH` | `data/parquet/measurements` | Measurement Parquet dataset path. |
+| `PREDICTIONS_PATH` | `data/predictions/forecast_24h.json` | Forecast JSON artifact served by the API. |
+| `PREDICTIONS_PARQUET_PATH` | `data/predictions/forecast_24h_parquet` | Forecast Parquet artifact path. |
+| `METRICS_PATH` | `data/predictions/metrics.json` | Model metrics JSON artifact path. |
+| `MODELS_PATH` | `models/aqi_forecast` | Spark model output directory. |
+
+When `HDFS_BASE_PATH` is set, `settings.storage_path(...)` prefixes configured relative paths with that base path. For example:
+
+```env
+HDFS_BASE_PATH=hdfs://namenode:9000/aqi-hcmc
+MEASUREMENTS_PATH=data/parquet/measurements
+```
+
+resolves measurement storage to:
+
+```text
+hdfs://namenode:9000/aqi-hcmc/data/parquet/measurements
+```
+
+## Quick Local Demo With Synthetic Data
+
+Synthetic data is useful when an OpenAQ API key is unavailable or when the HCMC public sensor coverage is too sparse for a visual demo.
+
+Generate sample measurements:
+
+```powershell
+python scripts/generate_sample_data.py --sensors 120 --days 7 --overwrite
+```
+
+For a larger presentation dataset:
 
 ```powershell
 python scripts/generate_sample_data.py --sensors 1200 --days 14 --overwrite
-spark-submit scripts/train_forecast_spark.py
+```
+
+Train models and write forecast/metrics artifacts:
+
+```powershell
+python scripts/train_forecast_spark.py
+```
+
+Start the API and dashboard:
+
+```powershell
 uvicorn app.main:app --reload
 ```
 
-Mo: <http://127.0.0.1:8000>
+Open:
 
-Dashboard co dropdown chon `Random Forest` hoac `GBTRegressor`.
+```text
+http://127.0.0.1:8000
+```
 
-## Chay voi du lieu OpenAQ that
+Important: the current handoff records that standalone local Spark training can exceed a 5-minute smoke window on Windows. If the command runs slowly, see the "Known Limitations" and "Troubleshooting" sections below.
+
+## OpenAQ Ingestion
+
+OpenAQ ingestion requires `OPENAQ_API_KEY`.
+
+Add the key to `.env`:
+
+```env
+OPENAQ_API_KEY=your-api-key
+```
+
+Ingest recent data:
 
 ```powershell
 python scripts/ingest_openaq.py --days 14 --limit-locations 80
-spark-submit scripts/train_forecast_spark.py
-uvicorn app.main:app --reload
 ```
 
-Co the dung window ro rang:
+Ingest an explicit UTC window:
 
 ```powershell
 python scripts/ingest_openaq.py --datetime-from 2026-07-01T00:00:00Z --datetime-to 2026-07-08T00:00:00Z
 ```
 
-Luu y: OpenAQ la tap hop du lieu cong khai da duoc OpenAQ phat hien/tich hop, khong bao dam co tat ca tram/cam bien tai TP.HCM. Neu khu vuc co it tram, generator du lieu mau giup ban demo mo hinh "hang ngan cam bien" nhu yeu cau de tai.
+Useful options:
 
-## HDFS
+| Option | Purpose |
+|---|---|
+| `--days N` | Use the last `N` days when explicit datetime bounds are not provided. |
+| `--datetime-from` | UTC start timestamp, for example `2026-07-01T00:00:00Z`. |
+| `--datetime-to` | UTC end timestamp, for example `2026-07-08T00:00:00Z`. |
+| `--limit-locations N` | Stop after `N` matching locations. |
+| `--max-pages-per-sensor N` | Limit paginated measurement requests per sensor. Warnings are printed if this may truncate data. |
+| `--overwrite` | Replace the existing measurement dataset instead of append + dedup. |
 
-Neu co Hadoop/HDFS:
+If no PM2.5 or PM10 data is found inside the configured bounding box, the script exits with a message suggesting synthetic data.
+
+## Storage Semantics
+
+Measurement rows use this schema:
+
+```text
+sensor_id
+location_id
+location_name
+datetime_utc
+datetime_local
+latitude
+longitude
+parameter
+unit
+value
+source
+date
+```
+
+Normalization behavior:
+
+- `parameter` is normalized to lowercase and periods are removed, so `PM2.5` becomes `pm25`.
+- `datetime_utc` is parsed as UTC and serialized consistently.
+- `date` is derived from `datetime_utc`.
+- Rows missing `sensor_id`, `parameter`, `datetime_utc`, or `date` are dropped.
+
+Deduplication identity:
+
+```text
+sensor_id + parameter + datetime_utc
+```
+
+Partition strategy:
+
+```text
+parameter/date
+```
+
+Default write behavior is append + dedup. Use `--overwrite` only when you intentionally want to replace the dataset, such as regenerating sample data.
+
+## Spark Feature Engineering
+
+The Spark pipeline is implemented in `scripts/train_forecast_spark.py`.
+
+The important correctness rule is:
+
+```text
+Hourly regularization happens before lag and lead generation.
+```
+
+That means:
+
+- Raw observations are aggregated to hourly grid-cell rows.
+- Each `(grid_lat, grid_lon, parameter)` series gets a dense hourly calendar.
+- Missing hours stay as explicit null rows.
+- Lag features such as `lag_1h` and `lag_24h` correspond to actual hourly offsets.
+- Rows with missing required lag or target values are dropped before training.
+
+The feature frame includes:
+
+```text
+grid_lat
+grid_lon
+parameter
+hour_ts
+value
+sensor_count
+latitude
+longitude
+hour
+day_of_week
+lag_1h
+lag_3h
+lag_24h
+forecast_origin_ts
+target_ts
+horizon_hour
+label
+split
+```
+
+Local temporal features use:
+
+```text
+Asia/Ho_Chi_Minh
+```
+
+Storage, ordering, split boundaries, and timestamp arithmetic use UTC.
+
+## Forecasting Semantics
+
+The project uses stacked multi-horizon supervised rows:
+
+```text
+features(t) + horizon_hour=1  -> target(t+1h)
+features(t) + horizon_hour=2  -> target(t+2h)
+...
+features(t) + horizon_hour=24 -> target(t+24h)
+```
+
+This is not a single T+24 model relabeled as H+1 through H+24. The tests explicitly guard against that bug by checking target timestamps and labels for all horizons.
+
+The model feature vector currently includes:
+
+```text
+grid_lat
+grid_lon
+hour
+day_of_week
+lag_1h
+lag_3h
+lag_24h
+sensor_count
+horizon_hour
+```
+
+Models are trained separately by pollutant when data is available:
+
+```text
+random_forest / pm25
+random_forest / pm10
+gbt / pm25
+gbt / pm10
+```
+
+If a pollutant has no training rows, that pollutant/model combination is skipped instead of failing the entire pipeline.
+
+## Train, Validation, and Test Splits
+
+The split is chronological and based on `target_ts`, not random sampling.
+
+Default fractions:
+
+```text
+train      70%
+validation 15%
+test       15%
+```
+
+The boundary rule is intentionally leak-safe:
+
+```text
+train target_ts < validation boundary
+validation target_ts < test boundary
+test target_ts >= test boundary
+```
+
+This prevents a row from staying in an earlier split when its future label crosses into a later split.
+
+## Metrics
+
+When training completes with `METRICS_PATH` configured, the script writes:
+
+```text
+data/predictions/metrics.json
+```
+
+Metrics are reported by:
+
+- model
+- pollutant parameter
+- horizon hour
+- split
+
+Metric fields:
+
+```text
+sample_count
+mae
+rmse
+r2
+```
+
+Non-finite metric values are serialized as JSON `null`, not `NaN` or `Infinity`.
+
+The API serves only metrics found in the artifact. It does not fabricate placeholder values.
+
+## AQI Calculation
+
+AQI logic is implemented in `src/aqi.py`.
+
+Supported pollutants:
+
+- PM2.5
+- PM10
+
+Unsupported pollutants return `None`. They do not silently fall back to PM10.
+
+The implementation follows U.S. EPA AQI breakpoint behavior selected by the project:
+
+- PM2.5 concentrations are truncated to 1 decimal place before bucket lookup.
+- PM10 concentrations are truncated to the nearest integer before bucket lookup.
+- Python's built-in `round()` is not used for concentration preprocessing.
+- Final AQI index values are rounded to the nearest whole AQI value after interpolation.
+- Negative concentrations are clamped to zero.
+- Combined AQI is the maximum valid pollutant AQI among the available pollutants.
+
+AQI categories returned by the backend:
+
+| AQI range | Category key |
+|---|---|
+| `0-50` | `good` |
+| `51-100` | `moderate` |
+| `101-150` | `unhealthy_sensitive` |
+| `151-200` | `unhealthy` |
+| `201-300` | `very_unhealthy` |
+| `301+` | `hazardous` |
+| missing | `unknown` |
+
+## Forecast Artifacts
+
+Forecast JSON rows include:
+
+```text
+model
+latitude
+longitude
+forecast_origin_ts
+target_ts
+forecast_ts
+horizon_hour
+sensor_count
+values
+aqi
+category
+```
+
+`values` can contain:
+
+```json
+{
+  "pm25": 30.4,
+  "pm10": 52.1
+}
+```
+
+`aqi` is computed from available pollutant predictions. If only one pollutant is present, the AQI uses that pollutant only.
+
+## API
+
+Start the server:
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+Base URL:
+
+```text
+http://127.0.0.1:8000
+```
+
+### `GET /`
+
+Serves the Leaflet dashboard.
+
+### `GET /api/models`
+
+Returns supported model IDs and display labels.
+
+Example response shape:
+
+```json
+{
+  "default": "random_forest",
+  "models": [
+    {"id": "random_forest", "label": "Random Forest"},
+    {"id": "gbt", "label": "GBTRegressor"}
+  ]
+}
+```
+
+### `GET /api/current`
+
+Returns latest available local measurement points by grid cell.
+
+Important fields:
+
+```text
+city
+mode
+generated_at
+data_as_of
+artifact
+count
+points
+```
+
+Each point can include:
+
+```text
+grid_lat
+grid_lon
+latitude
+longitude
+values
+aqi
+category
+observation_ts
+observation_age_hours
+freshness_status
+sensor_count
+```
+
+Freshness states:
+
+| State | Rule |
+|---|---|
+| `fresh` | observation age is at most 2 hours |
+| `delayed` | observation age is more than 2 hours and at most 12 hours |
+| `stale` | observation age is more than 12 hours |
+| `missing` | observation timestamp cannot be calculated |
+
+### `GET /api/forecast`
+
+Query parameters:
+
+| Parameter | Default | Rule |
+|---|---|---|
+| `horizon` | `1` | integer from `1` to `24` |
+| `model` | `random_forest` | `random_forest` or `gbt`; unknown values fall back to `random_forest` |
+
+Example:
+
+```text
+/api/forecast?horizon=6&model=gbt
+```
+
+Response includes:
+
+```text
+mode
+horizon_hour
+model
+generated_at
+data_as_of
+target_as_of
+artifact
+count
+points
+```
+
+### `GET /api/hotspots`
+
+Returns ranked AQI hotspots.
+
+Query parameters:
+
+| Parameter | Default | Rule |
+|---|---|---|
+| `mode` | `forecast` | `current` or `forecast` |
+| `horizon` | `1` | integer from `1` to `24`, used for forecast mode |
+| `model` | `random_forest` | used for forecast mode |
+| `limit` | `10` | integer from `1` to `50` |
+
+Examples:
+
+```text
+/api/hotspots?mode=current&limit=10
+/api/hotspots?mode=forecast&horizon=12&model=random_forest&limit=5
+```
+
+### `GET /api/metrics`
+
+Returns model metrics from `METRICS_PATH` if the artifact exists.
+
+Optional filters:
+
+| Parameter | Example |
+|---|---|
+| `model` | `random_forest` |
+| `parameter` | `PM2.5`, `pm25`, `PM10`, or `pm10` |
+| `split` | `validation` or `test` |
+
+Example:
+
+```text
+/api/metrics?model=gbt&parameter=PM2.5&split=test
+```
+
+If the metrics artifact is missing, the response has:
+
+```json
+{
+  "available": false,
+  "metrics": []
+}
+```
+
+### `GET /api/health`
+
+Reports local artifact availability.
+
+For local paths, the API checks whether files/directories exist. For `hdfs://` paths, the local FastAPI process reports that direct checking is unsupported rather than pretending the HDFS path is healthy.
+
+Health status:
+
+- `ok` when local checked artifacts exist.
+- `degraded` when one or more local checked artifacts are missing, or no checked artifact is available.
+
+## Frontend Dashboard
+
+The frontend is a static Leaflet dashboard served from `app/static`.
+
+Implemented UI behavior:
+
+- Map-first layout.
+- Current and Forecast modes.
+- H+1 through H+24 forecast horizon control.
+- Random Forest and GBT model selector.
+- KPI strip.
+- AQI legend.
+- Ranked hotspot panel.
+- Metrics display when `metrics.json` is available.
+- Empty and missing-artifact states.
+
+The dashboard expects the FastAPI server to provide data. It does not fabricate missing values.
+
+Visual/browser QA is still pending in the current project state. Treat layout polish and responsive verification as incomplete until it is run and recorded.
+
+## HDFS Usage
+
+Local development does not require Hadoop.
+
+For a Hadoop/HDFS environment, configure:
 
 ```env
 HDFS_BASE_PATH=hdfs://namenode:9000/aqi-hcmc
 ```
 
-Sau do chay lai ingest va train. Measurement Parquet va prediction Parquet se dung HDFS base path. Real HDFS cluster chua duoc verify trong repo nay; chi claim sau khi ban chay tren cluster that.
+Then run ingestion/training normally:
 
-## Kiem thu
+```powershell
+python scripts/ingest_openaq.py --days 14
+python scripts/train_forecast_spark.py
+```
+
+Important limitations:
+
+- Measurement writes to `hdfs://` are routed through Spark and Hadoop filesystem APIs.
+- The repository currently does not contain evidence of a successful real HDFS cluster verification.
+- Do not claim HDFS is verified until you run it on a real cluster and update `docs/AGENT_HANDOFF.md`.
+
+## Testing
+
+Run the full test suite:
 
 ```powershell
 python -m pytest
 ```
 
-Tren Windows, Spark local co the can chay pytest ngoai sandbox/voi quyen day du de mo loopback va Python worker on dinh.
+Run focused tests:
 
-## Cau truc thu muc
-
-```text
-app/                     FastAPI + dashboard heatmap
-src/                     cau hinh, OpenAQ client, AQI, data IO
-scripts/                 ingest, sample generator, Spark train/forecast
-data/parquet/            data lake local dang Parquet
-data/predictions/        output du bao 24h dang JSON/Parquet
-models/                  Spark ML model
-docs/                    architecture, implementation plan, agent handoff
-tests/                   AQI, Spark feature, storage, API, integration tests
+```powershell
+python -m pytest tests/test_aqi.py
+python -m pytest tests/test_spark_features.py
+python -m pytest tests/test_storage_phase2.py
+python -m pytest tests/test_api_phase3.py
+python -m pytest tests/test_train_forecast_integration.py
 ```
 
-## Nguon ky thuat
+Expected coverage areas:
 
-- OpenAQ API v3 dung API key qua header `X-API-Key`.
-- OpenAQ v3 ho tro geospatial query bang `bbox` va `coordinates/radius`.
-- Endpoint measurements cua OpenAQ v3 truy van theo `sensor_id`.
-- OpenAQ v1/v2 da retired ngay 2025-01-31, nen project nay chi dung v3.
+- AQI boundary behavior and unsupported pollutants.
+- Dense hourly timeline construction.
+- Missing-hour lag behavior.
+- H+1 through H+24 target construction.
+- `forecast_origin_ts` and `target_ts` correctness.
+- Asia/Ho_Chi_Minh local temporal features.
+- Chronological split behavior based on `target_ts`.
+- Local Parquet append, overwrite, partitioning, and deduplication.
+- Metrics JSON serialization.
+- FastAPI current, forecast, hotspot, metrics, and health endpoints.
+- Spark training/forecast integration.
+
+On Windows, PySpark tests may require running outside restrictive sandboxes because local Spark workers use local processes and loopback communication.
+
+## Typical Development Workflows
+
+### Regenerate synthetic data and run API
+
+```powershell
+python scripts/generate_sample_data.py --sensors 120 --days 7 --overwrite
+uvicorn app.main:app --reload
+```
+
+This is enough to test `/api/current` and the Current dashboard mode.
+
+### Regenerate data, train models, and view forecasts
+
+```powershell
+python scripts/generate_sample_data.py --sensors 120 --days 7 --overwrite
+python scripts/train_forecast_spark.py
+uvicorn app.main:app --reload
+```
+
+This should produce:
+
+```text
+data/predictions/forecast_24h.json
+data/predictions/forecast_24h_parquet
+data/predictions/metrics.json
+models/aqi_forecast
+```
+
+Current repository status notes that the full standalone train command may run slowly or time out on Windows local Spark. The model hyperparameters may need a smoke-test mode or optimization before this is considered fully verified.
+
+### Ingest real OpenAQ data and train
+
+```powershell
+python scripts/ingest_openaq.py --datetime-from 2026-07-01T00:00:00Z --datetime-to 2026-07-08T00:00:00Z --limit-locations 80
+python scripts/train_forecast_spark.py
+uvicorn app.main:app --reload
+```
+
+Do this only after setting `OPENAQ_API_KEY`.
+
+## Troubleshooting
+
+### `OPENAQ_API_KEY is required for real OpenAQ ingestion.`
+
+Set `OPENAQ_API_KEY` in `.env`, or use `scripts/generate_sample_data.py` instead.
+
+### No OpenAQ rows found
+
+The configured HCMC bounding box may not contain enough public PM2.5/PM10 observations for the requested time window. Try:
+
+- increasing the time window;
+- increasing `--limit-locations`;
+- checking the `HCMC_BBOX`;
+- using synthetic data for demos.
+
+### Spark is slow on Windows
+
+Local PySpark can be slow, especially with multiple model fits. Try:
+
+- reducing synthetic sensor count and day count;
+- running from a normal terminal instead of a restricted sandbox;
+- closing other Java/Spark processes;
+- reducing workload in the training script if you are creating a smoke-test mode.
+
+### Metrics API returns `available: false`
+
+`data/predictions/metrics.json` does not exist yet. Run:
+
+```powershell
+python scripts/train_forecast_spark.py
+```
+
+If training does not complete, the API will correctly avoid serving fake metrics.
+
+### Forecast API returns zero points
+
+`data/predictions/forecast_24h.json` is missing or does not contain rows matching the requested `horizon` and `model`. Run training and check that the forecast artifact exists.
+
+### Health is `degraded`
+
+This usually means one or more local artifacts are missing. It is expected before generating measurements, forecasts, and metrics.
+
+## Known Limitations
+
+- This is a batch system, not true realtime streaming.
+- OpenAQ live ingestion has not been verified in the current repository state.
+- Real HDFS cluster writes have not been verified in the current repository state.
+- Full standalone Spark training has a recorded Windows local Spark timeout and needs optimization or a configurable smoke mode.
+- Browser screenshot QA for the frontend has not been recorded.
+- Public OpenAQ coverage for Ho Chi Minh City may be sparse or inconsistent depending on sensor availability and the selected time window.
+- The synthetic generator is for demos and repeatable development only. It must not be presented as real sensor data.
+
+## Verification Rules For Future Work
+
+After meaningful implementation work:
+
+1. Run relevant tests.
+2. Inspect `git status`.
+3. Inspect `git diff`.
+4. Update `docs/AGENT_HANDOFF.md`.
+5. Record commands run and whether they passed, failed, or were skipped.
+6. Record known bugs and unverified items honestly.
+7. Keep the "Exact Next Step" section in `docs/AGENT_HANDOFF.md` current.
+
+Do not mark OpenAQ, HDFS, frontend visual QA, or full Spark training as verified without actual successful evidence.

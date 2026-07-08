@@ -7,10 +7,10 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
-- Latest commit: `44243a0 fc`
-- Working tree: modified/untracked implementation files; generated `data/`, `models/`, caches ignored
+- Latest commit: `6fd35bd update`
+- Working tree: `README.md`, `docs/AGENT_HANDOFF.md`, `scripts/train_forecast_spark.py`, and `tests/test_spark_features.py` modified; untracked `.claude/`; generated `data/`, `models/`, caches ignored
 - Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: finish verification gaps and decide whether to optimize full train script runtime
+- Active task: corrective P0 train/inference lag fix completed; next is artifact regeneration/training runtime verification
 - Last updated: 2026-07-08
 - Last agent: OpenAI Codex
 
@@ -145,14 +145,70 @@ Implementation:
 
 - Ignores Python caches, env files, logs, Spark/Hadoop artifacts, `data/`, `models/`, and large local analytical outputs.
 
+### Phase 5 Documentation Update
+
+Files:
+
+- `README.md`
+- `docs/AGENT_HANDOFF.md`
+
+Implementation:
+
+- Rewrote README fully in English.
+- Expanded README with status, architecture, setup, configuration, synthetic data workflow, OpenAQ workflow, storage semantics, Spark feature semantics, forecasting semantics, metrics, AQI behavior, API contract, frontend notes, HDFS notes, tests, troubleshooting, known limitations, and future verification rules.
+- Kept limitations explicit: OpenAQ live ingestion NOT_VERIFIED, real HDFS NOT_VERIFIED, full standalone Spark train PARTIAL, frontend browser/visual QA PARTIAL.
+
+Verification:
+
+- Checked README diff.
+- Checked README for non-ASCII characters; no matches.
+- No code tests were run for this docs-only change.
+
+### Phase 5 Corrective P0 Lag Fix
+
+Files:
+
+- `scripts/train_forecast_spark.py`
+- `tests/test_spark_features.py`
+- `docs/AGENT_HANDOFF.md`
+
+Verified defect:
+
+- `build_forecast()` created inference lag features by assigning `lag_1h`, `lag_3h`, and `lag_24h` to the latest/current `value`.
+- Training uses true historical lags from the regularized hourly time series, so inference feature semantics did not match training semantics.
+
+Implementation:
+
+- Added `forecast_candidate_frame(hourly)` to construct inference candidates.
+- Inference now computes `lag_1h`, `lag_3h`, and `lag_24h` with the same ascending per-grid/per-parameter window semantics used by `feature_frame()`.
+- Inference now drops latest-origin candidates with missing required current value or lag history instead of filling missing lag history with current value.
+- `build_forecast()` now scores the corrected candidate frame.
+
+Regression tests:
+
+- Added `test_forecast_candidate_lags_use_history_not_latest_value`.
+- Added `test_forecast_candidate_drops_latest_origin_when_required_lag_is_missing`.
+
+Verification:
+
+- `python -m pytest tests\test_spark_features.py` -> 17 passed.
+- `python -m pytest tests\test_train_forecast_integration.py` first timed out at 120 seconds, then passed with longer timeout: 1 passed in 343.17 seconds.
+- `python -m pytest` -> 42 passed in 336.13 seconds.
+
+Artifact note:
+
+- Existing generated `data/predictions/forecast_24h.json` has 5,856 rows but is stale and lacks `forecast_origin_ts` and `target_ts`.
+- `data/predictions/metrics.json` is absent.
+- Forecast artifacts were not regenerated in this pass because standalone training remains a known long-running verification gap.
+
 ## 4. Current In-Progress Work
 
 ### Task: Phase 5 verification and final polish
 
-- Current state: partial verification complete
+- Current state: P0 train/inference lag mismatch fixed and full pytest passes; artifact regeneration remains partial
 - Files involved: all source, tests, README, handoff
-- Blocker: standalone Spark train script runtime exceeded 5-minute smoke timeout on Windows local Spark
-- Next technical action: optimize or parameterize training hyperparameters so a small standalone train smoke completes, then run browser visual QA for the frontend
+- Blocker: standalone Spark train script runtime exceeded 5-minute smoke timeout on Windows local Spark in prior runs; current generated forecast artifact is stale and lacks `forecast_origin_ts`/`target_ts`
+- Next technical action: optimize or parameterize training hyperparameters so a small standalone train smoke completes and regenerates forecast JSON/metrics.json, then run browser visual QA for the frontend
 
 ## 5. Data and Schema State
 
@@ -240,35 +296,52 @@ Current API points include:
 
 ### Successfully Executed
 
+- `Get-Content -Raw docs/IMPLEMENTATION_PLAN.md`
+- `Get-Content -Raw docs/AGENT_HANDOFF.md`
+- `Get-Content -Raw docs/ARCHITECTURE.md`
+- `git status --short`
+- `git diff --stat`
+- `git diff -- README.md`
+- `git log --oneline -n 10`
+- `git branch --show-current`
+- `Select-String -Path README.md -Pattern '[^\x00-\x7F]'` -> no matches
+- `Select-String -Path README.md,docs\AGENT_HANDOFF.md -Pattern '[^\x00-\x7F]'` -> no matches
 - `python -m py_compile src\io.py src\openaq_client.py src\config.py scripts\ingest_openaq.py scripts\generate_sample_data.py scripts\train_forecast_spark.py`
 - `python -m pytest tests\test_storage_phase2.py`
 - `python -m pytest tests\test_api_phase3.py tests\test_storage_phase2.py`
 - `python -m pytest` -> 38 passed before Phase 3, then 40 passed after Phase 3
 - Temporary uvicorn job with HTTP checks -> `/` 200, current/forecast API reachable
+- `python -m pytest tests\test_spark_features.py` -> 17 passed after corrective P0 lag fix
+- `python -m pytest tests\test_train_forecast_integration.py` -> 1 passed in 343.17 seconds after increasing command timeout
+- `python -m pytest` -> 42 passed after corrective P0 lag fix
+- Forecast artifact inspection: `data\predictions\forecast_24h.json` has 5,856 rows but no `forecast_origin_ts`/`target_ts`
+- Metrics artifact inspection: `data\predictions\metrics.json` is absent
 
 ### Failed or Partial Commands
 
 - `python scripts\train_forecast_spark.py` with temp env paths and 12 sensors/4 days timed out after 304 seconds.
 - `python scripts\train_forecast_spark.py` with temp env paths and 4 sensors/3 days timed out after 304 seconds.
 - Attempts to leave uvicorn running with `Start-Process` failed due Windows `Path/PATH` duplicate environment issue; temporary `Start-Job` verification worked inside one command.
+- `python -m pytest tests\test_train_forecast_integration.py` with 120-second command timeout timed out before completion; rerun with longer timeout passed.
 
 ### Not Yet Run
 
 - OpenAQ ingestion with a real API key.
 - Real HDFS cluster write/read verification.
 - Browser screenshot/visual QA.
-- Long-running standalone Spark train completion.
+- Long-running standalone Spark train completion after corrective lag fix.
+- Regeneration of forecast JSON and metrics artifacts after corrective lag fix.
 
 ## 7. Test Status
 
 | Test Area | Status | Evidence |
 |---|---|---|
 | AQI unit tests | PASS | `tests/test_aqi.py` in full pytest |
-| Spark feature tests | PASS | `tests/test_spark_features.py` in full pytest |
+| Spark feature tests | PASS | `tests/test_spark_features.py` passed standalone with 17 tests and in full pytest |
 | Horizon semantics tests | PASS | H+1..H+24 tests pass |
 | Storage tests | PASS | `tests/test_storage_phase2.py` pass |
 | API tests | PASS | `tests/test_api_phase3.py` pass |
-| Integration tests | PASS | `tests/test_train_forecast_integration.py` pass |
+| Integration tests | PASS | `tests/test_train_forecast_integration.py` passed with longer timeout |
 | Frontend verification | PARTIAL | `/` HTTP 200; no visual/browser QA |
 
 ## 8. Exact Next Step
@@ -276,7 +349,7 @@ Current API points include:
 Primary next action:
 
 ```text
-Optimize or parameterize scripts/train_forecast_spark.py so a small standalone Spark train run writes forecast JSON and metrics.json within a reasonable smoke-test window, then run browser visual QA for the Phase 4 frontend.
+Optimize or parameterize scripts/train_forecast_spark.py so a small standalone Spark train run completes with the corrected inference lag semantics, regenerates forecast JSON with `forecast_origin_ts`/`target_ts`, writes metrics.json, then run browser visual QA for the Phase 4 frontend.
 ```
 
 ## 9. Instructions for the Next Agent
@@ -291,6 +364,50 @@ Optimize or parameterize scripts/train_forecast_spark.py so a small standalone S
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-08 - OpenAI Codex
+
+Phase:
+
+- Phase 5 corrective implementation
+
+Work:
+
+- Verified the suspected P0 train/inference lag mismatch in `scripts/train_forecast_spark.py`.
+- Fixed inference candidate construction so `lag_1h`, `lag_3h`, and `lag_24h` come from historical hourly rows instead of the current value.
+- Added regression tests for inference lag values and missing required lag history.
+- Inspected generated artifacts and confirmed existing forecast JSON is stale/missing origin and target timestamps; metrics JSON is absent.
+
+Tests:
+
+- `python -m pytest tests\test_spark_features.py` -> 17 passed.
+- `python -m pytest tests\test_train_forecast_integration.py` -> first command timed out at 120 seconds; rerun with longer timeout passed.
+- `python -m pytest` -> 42 passed.
+
+Result:
+
+- P0 code defect is fixed and covered by regression tests.
+- Artifact regeneration and standalone train runtime optimization remain the next verification gap.
+
+### 2026-07-08 - OpenAI Codex
+
+Phase:
+
+- Phase 5 documentation
+
+Work:
+
+- Rewrote `README.md` fully in English with detailed setup, architecture, workflow, API, storage, Spark, AQI, testing, troubleshooting, and limitation sections.
+- Updated this handoff to reflect the docs-only change and current git state.
+
+Tests:
+
+- Not run; docs-only change.
+- README checked for non-ASCII characters; no matches.
+
+Result:
+
+- README is now detailed English documentation and preserves honesty about unverified OpenAQ, HDFS, standalone training runtime, and frontend visual QA gaps.
 
 ### 2026-07-08 - OpenAI Codex
 

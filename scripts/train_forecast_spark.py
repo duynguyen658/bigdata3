@@ -265,6 +265,41 @@ def train_models(features, model_base_path: str, metrics_path: str | None = None
     return models
 
 
+def forecast_candidate_frame(hourly):
+    """Build inference rows with the same lag semantics used for training."""
+    w = Window.partitionBy("grid_lat", "grid_lon", "parameter").orderBy("hour_ts")
+    local_origin_ts = F.from_utc_timestamp(F.col("hour_ts"), LOCAL_TZ)
+    with_lags = (
+        hourly.withColumn("hour", F.hour(local_origin_ts))
+        .withColumn("day_of_week", F.dayofweek(local_origin_ts))
+        .withColumn("lag_1h", F.lag("value", 1).over(w))
+        .withColumn("lag_3h", F.lag("value", 3).over(w))
+        .withColumn("lag_24h", F.lag("value", 24).over(w))
+    )
+    latest_w = Window.partitionBy("grid_lat", "grid_lon", "parameter").orderBy(F.col("hour_ts").desc())
+    latest = (
+        with_lags.withColumn("rank", F.row_number().over(latest_w))
+        .where("rank = 1")
+        .drop("rank")
+        .where(
+            F.col("value").isNotNull()
+            & F.col("lag_1h").isNotNull()
+            & F.col("lag_3h").isNotNull()
+            & F.col("lag_24h").isNotNull()
+        )
+        .withColumn("forecast_origin_ts", F.col("hour_ts"))
+    )
+
+    spark = SparkSession.getActiveSession()
+    assert spark is not None
+    horizons = spark.range(1, 25).withColumnRenamed("id", "horizon_hour")
+    return (
+        latest.crossJoin(horizons)
+        .withColumn("target_ts", F.from_unixtime(F.unix_timestamp("hour_ts") + F.col("horizon_hour") * 3600).cast("timestamp"))
+        .withColumn("forecast_ts", F.col("target_ts"))
+    )
+
+
 def build_forecast(hourly, models):
     if not models:
         raise RuntimeError("No models were trained. Need PM2.5 or PM10 history.")
@@ -273,32 +308,7 @@ def build_forecast(hourly, models):
     if latest_hour is None:
         raise RuntimeError("No hourly measurements available.")
 
-    base_w = Window.partitionBy("grid_lat", "grid_lon", "parameter").orderBy(F.col("hour_ts").desc())
-    latest = (
-        hourly.withColumn("rank", F.row_number().over(base_w))
-        .where("rank = 1")
-        .drop("rank")
-        .withColumn("lag_1h", F.col("value"))
-        .withColumn("lag_3h", F.col("value"))
-        .withColumn("lag_24h", F.col("value"))
-        .withColumn("forecast_origin_ts", F.col("hour_ts"))
-    )
-
-    spark = SparkSession.getActiveSession()
-    assert spark is not None
-    horizons = spark.range(1, 25).withColumnRenamed("id", "horizon_hour")
-    # hour/day_of_week must be derived from hour_ts (the forecast origin, in
-    # local time), matching feature_frame's training semantics exactly -- NOT
-    # from forecast_ts (the target time), which would mismatch what the model
-    # was trained on and reintroduce the H+1..H+24 mislabeling bug.
-    local_origin_ts = F.from_utc_timestamp(F.col("hour_ts"), LOCAL_TZ)
-    candidate = (
-        latest.crossJoin(horizons)
-        .withColumn("target_ts", F.from_unixtime(F.unix_timestamp("hour_ts") + F.col("horizon_hour") * 3600).cast("timestamp"))
-        .withColumn("forecast_ts", F.col("target_ts"))
-        .withColumn("hour", F.hour(local_origin_ts))
-        .withColumn("day_of_week", F.dayofweek(local_origin_ts))
-    )
+    candidate = forecast_candidate_frame(hourly)
     forecasts = []
     for (model_name, parameter), model in models.items():
         scored = model.transform(candidate.where(F.col("parameter") == parameter))

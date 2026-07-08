@@ -10,7 +10,7 @@ from pyspark.sql.types import DoubleType, LongType, StringType, StructField, Str
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from scripts.train_forecast_spark import LOCAL_TZ, feature_frame, prepare_hourly, split_feature_frame
+from scripts.train_forecast_spark import LOCAL_TZ, feature_frame, forecast_candidate_frame, prepare_hourly, split_feature_frame
 from src.io import write_measurements_parquet
 
 
@@ -384,3 +384,31 @@ def test_chronological_split_uses_target_ts_boundaries(spark_session):
     assert all(row["count"] > 0 for row in stats.values())
     assert stats["train"]["max_target_epoch"] < stats["validation"]["min_target_epoch"]
     assert stats["validation"]["max_target_epoch"] < stats["test"]["min_target_epoch"]
+
+
+# --- 7. Inference feature compatibility: forecast candidates use real lags ---------
+
+
+def test_forecast_candidate_lags_use_history_not_latest_value(spark_session):
+    hourly = _build_hourly_df(spark_session, range(0, 51))
+    candidate = forecast_candidate_frame(hourly)
+
+    row = candidate.where(F.col("horizon_hour") == 1).collect()[0]
+    assert row["value"] == 50.0
+    assert row["lag_1h"] == 49.0
+    assert row["lag_3h"] == 47.0
+    assert row["lag_24h"] == 26.0
+
+    assert row["lag_1h"] != row["value"]
+    assert row["lag_3h"] != row["value"]
+    assert row["lag_24h"] != row["value"]
+    assert candidate.count() == 24
+
+
+def test_forecast_candidate_drops_latest_origin_when_required_lag_is_missing(spark_session):
+    hourly = _build_hourly_df(spark_session, range(0, 51), gap_hours={49})
+    candidate = forecast_candidate_frame(hourly)
+
+    # Latest real observation is hour 50, but lag_1h points to explicit gap
+    # hour 49. Inference must not fill that missing history with current value.
+    assert candidate.count() == 0
