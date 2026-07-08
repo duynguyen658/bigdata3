@@ -78,13 +78,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate synthetic HCMC AQI sensor data.")
     parser.add_argument("--sensors", type=int, default=1200)
     parser.add_argument("--days", type=int, default=14)
+    parser.add_argument("--overwrite", action="store_true", help="Replace existing measurement dataset instead of append+dedup.")
     args = parser.parse_args()
 
     settings.ensure_local_dirs()
     df = pd.DataFrame(build_rows(args.sensors, args.days))
     path = settings.storage_path(settings.measurements_path)
-    write_measurements_parquet(df, path)
-    print(f"Wrote {len(df):,} rows to {path}")
+    total_rows = write_measurements_parquet(df, path, mode="overwrite" if args.overwrite else "append")
+    print(f"Wrote {len(df):,} rows to {path}; dataset now has {total_rows:,} deduplicated rows")
 
 
 if __name__ == "__main__":

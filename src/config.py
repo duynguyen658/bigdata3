@@ -23,6 +23,7 @@ class Settings:
     measurements_path: str = _env("MEASUREMENTS_PATH", "data/parquet/measurements")
     predictions_path: str = _env("PREDICTIONS_PATH", "data/predictions/forecast_24h.json")
     predictions_parquet_path: str = _env("PREDICTIONS_PARQUET_PATH", "data/predictions/forecast_24h_parquet")
+    metrics_path: str = _env("METRICS_PATH", "data/predictions/metrics.json")
     models_path: str = _env("MODELS_PATH", "models/aqi_forecast")
 
     def storage_path(self, relative_or_local: str) -> str:
@@ -31,7 +32,13 @@ class Settings:
         return relative_or_local
 
     def ensure_local_dirs(self) -> None:
-        for value in [self.measurements_path, self.predictions_path, self.predictions_parquet_path, self.models_path]:
+        for value in [
+            self.measurements_path,
+            self.predictions_path,
+            self.predictions_parquet_path,
+            self.metrics_path,
+            self.models_path,
+        ]:
             if value.startswith("hdfs://"):
                 continue
             path = Path(value)

@@ -14,29 +14,60 @@
     <main class="shell">
       <section class="map-zone" aria-label="Ban do nhiet AQI TP.HCM">
         <div id="map"></div>
-        <div class="topbar">
-          <div>
-            <p class="eyebrow">AQI Monitoring</p>
-            <h1>TP.HCM</h1>
+
+        <header class="topbar">
+          <div class="brand">
+            <p class="eyebrow">OpenAQ + Spark MLlib</p>
+            <h1>TP.HCM AQI</h1>
           </div>
-          <div class="status" id="status">Dang tai du bao...</div>
-        </div>
-        <aside class="panel">
-          <div class="metric">
-            <span>AQI cao nhat</span>
+          <div class="mode-switch" role="group" aria-label="Che do hien thi">
+            <button class="mode-button is-active" type="button" data-mode="current">Current</button>
+            <button class="mode-button" type="button" data-mode="forecast">Forecast</button>
+          </div>
+        </header>
+
+        <section class="kpis" aria-label="Tom tat du lieu">
+          <div>
+            <span>Max AQI</span>
             <strong id="max-aqi">--</strong>
           </div>
-          <label class="control">
-            <span>Du bao sau <b id="horizon-label">1h</b></span>
-            <input id="horizon" type="range" min="1" max="24" value="1" />
-          </label>
-          <label class="control">
-            <span>Mo hinh du bao</span>
-            <select id="model">
-              <option value="random_forest">Random Forest</option>
-              <option value="gbt">GBTRegressor</option>
-            </select>
-          </label>
+          <div>
+            <span>Diem luoi</span>
+            <strong id="point-count">--</strong>
+          </div>
+          <div>
+            <span>Moc du lieu</span>
+            <strong id="data-as-of">--</strong>
+          </div>
+          <div>
+            <span>Trang thai</span>
+            <strong id="freshness">--</strong>
+          </div>
+        </section>
+
+        <aside class="panel" aria-label="Dieu khien ban do">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Heatmap</p>
+              <h2 id="panel-title">Current AQI</h2>
+            </div>
+            <div class="status" id="status">Dang tai...</div>
+          </div>
+
+          <div class="forecast-controls" id="forecast-controls">
+            <label class="control">
+              <span>Mo hinh</span>
+              <select id="model">
+                <option value="random_forest">Random Forest</option>
+                <option value="gbt">GBTRegressor</option>
+              </select>
+            </label>
+            <label class="control">
+              <span>Horizon <b id="horizon-label">H+1</b></span>
+              <input id="horizon" type="range" min="1" max="24" value="1" />
+            </label>
+          </div>
+
           <div class="legend" aria-label="Chu giai AQI">
             <span class="good">0-50</span>
             <span class="moderate">51-100</span>
@@ -44,7 +75,29 @@
             <span class="unhealthy">151-200</span>
             <span class="severe">201+</span>
           </div>
-          <ol class="hotspots" id="hotspots"></ol>
+
+          <section class="metrics-strip" aria-label="Chi so danh gia mo hinh">
+            <div>
+              <span>MAE</span>
+              <strong id="metric-mae">--</strong>
+            </div>
+            <div>
+              <span>RMSE</span>
+              <strong id="metric-rmse">--</strong>
+            </div>
+            <div>
+              <span>R2</span>
+              <strong id="metric-r2">--</strong>
+            </div>
+          </section>
+
+          <section class="hotspot-section" aria-label="Diem nong AQI">
+            <div class="section-title">
+              <span>Hotspots</span>
+              <span id="hotspot-context">--</span>
+            </div>
+            <ol class="hotspots" id="hotspots"></ol>
+          </section>
         </aside>
       </section>
     </main>

@@ -13,6 +13,7 @@ class OpenAQClient:
             raise ValueError("OPENAQ_API_KEY is required for real OpenAQ ingestion.")
         self.base_url = base_url.rstrip("/")
         self.pause_seconds = pause_seconds
+        self.truncation_warnings: list[str] = []
         self.session = requests.Session()
         self.session.headers.update({"X-API-Key": api_key, "Accept": "application/json"})
 
@@ -35,6 +36,10 @@ class OpenAQClient:
             yield from results
             found = payload.get("meta", {}).get("found")
             if max_pages and page >= max_pages:
+                if isinstance(found, int) and page * int(query["limit"]) < found:
+                    self.truncation_warnings.append(
+                        f"{path} stopped at max_pages={max_pages}; fetched about {page * int(query['limit'])} of {found} rows"
+                    )
                 break
             if isinstance(found, int) and page * int(query["limit"]) >= found:
                 break

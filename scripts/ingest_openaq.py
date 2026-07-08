@@ -15,6 +15,13 @@ from src.io import write_measurements_parquet
 from src.openaq_client import OpenAQClient
 
 
+def parse_utc_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def coordinates_from_location(location: dict[str, Any]) -> tuple[float | None, float | None]:
     coords = location.get("coordinates") or {}
     return coords.get("latitude"), coords.get("longitude")
@@ -53,8 +60,11 @@ def flatten_measurement(measurement: dict[str, Any], sensor: dict[str, Any], loc
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest OpenAQ measurements for Ho Chi Minh City.")
     parser.add_argument("--days", type=int, default=14)
+    parser.add_argument("--datetime-from", dest="datetime_from", help="UTC start, e.g. 2026-07-01T00:00:00Z")
+    parser.add_argument("--datetime-to", dest="datetime_to", help="UTC end, e.g. 2026-07-08T00:00:00Z")
     parser.add_argument("--limit-locations", type=int, default=80)
     parser.add_argument("--max-pages-per-sensor", type=int, default=20)
+    parser.add_argument("--overwrite", action="store_true", help="Replace existing local/HDFS measurement dataset instead of append+dedup.")
     args = parser.parse_args()
 
     settings.ensure_local_dirs()
@@ -63,8 +73,11 @@ def main() -> None:
     wanted = {"pm25", "pm10"}
     locations = client.locations(settings.hcmc_bbox, list(parameter_ids.values()), args.limit_locations)
 
-    now = datetime.now(timezone.utc)
-    since = now - timedelta(days=args.days)
+    now = parse_utc_datetime(args.datetime_to) if args.datetime_to else datetime.now(timezone.utc)
+    since = parse_utc_datetime(args.datetime_from) if args.datetime_from else now - timedelta(days=args.days)
+    if since >= now:
+        raise SystemExit("--datetime-from must be before --datetime-to")
+
     rows: list[dict[str, Any]] = []
 
     for location in locations:
@@ -88,8 +101,15 @@ def main() -> None:
     df = pd.DataFrame(rows)
     df = df.dropna(subset=["datetime_utc", "latitude", "longitude", "parameter", "value"])
     path = settings.storage_path(settings.measurements_path)
-    write_measurements_parquet(df, path)
-    print(f"Wrote {len(df):,} OpenAQ rows from {len(locations)} locations to {path}")
+    total_rows = write_measurements_parquet(df, path, mode="overwrite" if args.overwrite else "append")
+    print(
+        f"Wrote {len(df):,} OpenAQ rows from {len(locations)} locations to {path}; "
+        f"dataset now has {total_rows:,} deduplicated rows"
+    )
+    if args.limit_locations and len(locations) >= args.limit_locations:
+        print(f"WARNING: stopped at --limit-locations={args.limit_locations}; more matching locations may exist.")
+    for warning in client.truncation_warnings:
+        print(f"WARNING: {warning}")
 
 
 if __name__ == "__main__":

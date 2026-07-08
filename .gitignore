@@ -40,9 +40,7 @@ derby.log
 **/*.crc
 
 # Local generated datasets and model artifacts
-data/raw/
-data/parquet/
-data/predictions/
+data/
 models/
 
 # Large local analytical file outputs

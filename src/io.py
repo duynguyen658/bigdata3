@@ -20,19 +20,96 @@ MEASUREMENT_COLUMNS = [
     "source",
 ]
 
+MEASUREMENT_ID_COLUMNS = ["sensor_id", "parameter", "datetime_utc"]
+PARTITION_COLUMNS = ["parameter", "date"]
 
-def write_measurements_parquet(df: pd.DataFrame, path: str) -> None:
+
+def _normalize_measurements(df: pd.DataFrame) -> pd.DataFrame:
     frame = df.copy()
     for column in MEASUREMENT_COLUMNS:
         if column not in frame.columns:
             frame[column] = None
     frame = frame[MEASUREMENT_COLUMNS]
-    if not path.startswith("hdfs://"):
-        target = Path(path)
-        if target.exists():
-            shutil.rmtree(target)
-        target.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(path, index=False, partition_cols=["parameter"])
+    frame["parameter"] = frame["parameter"].astype(str).str.lower().str.replace(".", "", regex=False)
+    utc = pd.to_datetime(frame["datetime_utc"], utc=True, errors="coerce")
+    frame["datetime_utc"] = utc.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+    frame["date"] = utc.dt.strftime("%Y-%m-%d")
+    frame = frame.dropna(subset=["sensor_id", "parameter", "datetime_utc", "date"])
+    return frame
+
+
+def _deduplicate_measurements(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.drop_duplicates(subset=MEASUREMENT_ID_COLUMNS, keep="last").sort_values(
+        ["date", "parameter", "datetime_utc", "sensor_id"]
+    )
+
+
+def _write_local_measurements(frame: pd.DataFrame, path: str, mode: str) -> int:
+    target = Path(path)
+    if mode not in {"append", "overwrite"}:
+        raise ValueError("mode must be 'append' or 'overwrite'")
+    if mode == "append" and target.exists():
+        existing = pd.read_parquet(target)
+        frame = pd.concat([existing, frame], ignore_index=True)
+    frame = _deduplicate_measurements(frame)
+
+    tmp = target.with_name(f".{target.name}.tmp")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(tmp, index=False, partition_cols=PARTITION_COLUMNS)
+    if target.exists():
+        shutil.rmtree(target)
+    tmp.rename(target)
+    return len(frame)
+
+
+def _write_spark_measurements(frame: pd.DataFrame, path: str, mode: str) -> int:
+    from pyspark.sql import SparkSession, Window
+    from pyspark.sql import functions as F
+
+    spark = SparkSession.getActiveSession() or SparkSession.builder.appName("measurement-storage").getOrCreate()
+    batch = spark.createDataFrame(frame)
+    if mode == "append":
+        try:
+            existing = spark.read.parquet(path)
+            combined = existing.unionByName(batch, allowMissingColumns=True)
+        except Exception:
+            combined = batch
+    elif mode == "overwrite":
+        combined = batch
+    else:
+        raise ValueError("mode must be 'append' or 'overwrite'")
+
+    w = Window.partitionBy(*MEASUREMENT_ID_COLUMNS).orderBy(F.col("datetime_utc").desc())
+    deduped = combined.withColumn("_rank", F.row_number().over(w)).where("_rank = 1").drop("_rank")
+    count = deduped.count()
+
+    tmp_path = f"{path.rstrip('/')}_tmp_write"
+    deduped.write.mode("overwrite").partitionBy(*PARTITION_COLUMNS).parquet(tmp_path)
+
+    hadoop_conf = spark._jsc.hadoopConfiguration()
+    fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+    final = spark._jvm.org.apache.hadoop.fs.Path(path)
+    tmp = spark._jvm.org.apache.hadoop.fs.Path(tmp_path)
+    if fs.exists(final):
+        fs.delete(final, True)
+    fs.rename(tmp, final)
+    return count
+
+
+def write_measurements_parquet(df: pd.DataFrame, path: str, mode: str = "append") -> int:
+    """Write measurement rows using append + dedup semantics.
+
+    Stable identity is `sensor_id + parameter + datetime_utc`, matching the
+    actual measurement schema. Local paths are handled with pandas/pyarrow.
+    `hdfs://` and other Spark-supported paths are routed through Spark so the
+    write path remains Hadoop-compatible.
+    """
+    frame = _normalize_measurements(df)
+    if path.startswith("hdfs://"):
+        return _write_spark_measurements(frame, path, mode=mode)
+    return _write_local_measurements(frame, path, mode=mode)
 
 
 def read_predictions_json(path: str) -> list[dict]:
