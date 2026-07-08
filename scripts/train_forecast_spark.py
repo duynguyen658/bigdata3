@@ -342,8 +342,8 @@ def write_outputs(forecast, json_path: str, parquet_path: str) -> None:
     for row in rows:
         key = (
             row.model,
-            round(row.latitude, 5),
-            round(row.longitude, 5),
+            round(float(row.grid_lat), 5),
+            round(float(row.grid_lon), 5),
             row.target_ts.isoformat(),
             int(row.horizon_hour),
         )
@@ -351,6 +351,8 @@ def write_outputs(forecast, json_path: str, parquet_path: str) -> None:
             key,
             {
                 "model": row.model,
+                "grid_lat": round(float(row.grid_lat), 5),
+                "grid_lon": round(float(row.grid_lon), 5),
                 "latitude": float(row.latitude),
                 "longitude": float(row.longitude),
                 "forecast_origin_ts": row.forecast_origin_ts.isoformat(),
@@ -359,8 +361,15 @@ def write_outputs(forecast, json_path: str, parquet_path: str) -> None:
                 "horizon_hour": int(row.horizon_hour),
                 "sensor_count": int(row.sensor_count),
                 "values": {},
+                "_coordinate_count": 1,
             },
         )
+        if row.parameter not in item["values"] and item["values"]:
+            coordinate_count = item["_coordinate_count"]
+            item["latitude"] = (item["latitude"] * coordinate_count + float(row.latitude)) / (coordinate_count + 1)
+            item["longitude"] = (item["longitude"] * coordinate_count + float(row.longitude)) / (coordinate_count + 1)
+            item["_coordinate_count"] = coordinate_count + 1
+        item["sensor_count"] = max(item["sensor_count"], int(row.sensor_count))
         item["values"][row.parameter] = round(float(row.predicted_value), 2)
 
     payload = []
@@ -369,6 +378,7 @@ def write_outputs(forecast, json_path: str, parquet_path: str) -> None:
         aqi = max(score for score in scores.values() if score is not None) if scores else None
         item["aqi"] = aqi
         item["category"] = aqi_category(aqi)
+        item.pop("_coordinate_count", None)
         payload.append(item)
 
     payload.sort(key=lambda x: (x["model"], x["horizon_hour"], -1 if x["aqi"] is None else -x["aqi"]))

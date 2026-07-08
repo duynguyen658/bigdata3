@@ -7,11 +7,11 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
-- Latest commit: `6fd35bd update`
-- Working tree: `README.md`, `docs/AGENT_HANDOFF.md`, `scripts/train_forecast_spark.py`, and `tests/test_spark_features.py` modified; untracked `.claude/`; generated `data/`, `models/`, caches ignored
+- Latest commit: `d30e461 update 2`
+- Working tree: `scripts/train_forecast_spark.py`, `tests/test_forecast_outputs.py`, and `docs/AGENT_HANDOFF.md` modified; untracked `.claude/`; generated `data/`, `models/`, caches ignored
 - Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: corrective P0 train/inference lag fix completed; next is artifact regeneration/training runtime verification
-- Last updated: 2026-07-08
+- Active task: corrective P1 forecast pollutant merge identity fix completed; next is artifact regeneration/training runtime verification
+- Last updated: 2026-07-09
 - Last agent: OpenAI Codex
 
 ## 2. Phase Status
@@ -201,14 +201,53 @@ Artifact note:
 - `data/predictions/metrics.json` is absent.
 - Forecast artifacts were not regenerated in this pass because standalone training remains a known long-running verification gap.
 
+### Phase 5 Corrective P1 Forecast Merge Identity Fix
+
+Files:
+
+- `scripts/train_forecast_spark.py`
+- `tests/test_forecast_outputs.py`
+- `docs/AGENT_HANDOFF.md`
+
+Verified defect:
+
+- `write_outputs()` merged PM2.5 and PM10 forecast rows using rounded display `latitude` and `longitude`.
+- Those display coordinates are pollutant-specific averages and can differ even when rows belong to the same forecast grid cell.
+- This could split PM2.5 and PM10 into separate JSON points for the same model/grid/target/horizon instead of combining them into one AQI point.
+
+Implementation:
+
+- Changed forecast JSON merge identity to use stable `grid_lat` and `grid_lon`.
+- Added `grid_lat` and `grid_lon` to forecast JSON payload rows.
+- Kept display `latitude` and `longitude` for map rendering, averaging them across newly merged pollutant rows.
+- Kept `sensor_count` as the maximum pollutant-level sensor count for the merged point.
+
+Regression tests:
+
+- Added `tests/test_forecast_outputs.py`.
+- Added `test_write_outputs_merges_pollutants_by_grid_identity_not_display_coordinates`.
+
+Verification:
+
+- Initial regression test command failed due a Windows Spark Python worker crash when the test used a local Python-row DataFrame; test setup was rewritten to construct the frame with Spark expressions.
+- `python -m pytest tests\test_forecast_outputs.py` -> 1 passed.
+- `python -m pytest tests\test_spark_features.py tests\test_forecast_outputs.py` -> 18 passed.
+- `python -m pytest` -> 43 passed in 175.22 seconds.
+
+Artifact note:
+
+- Existing generated `data/predictions/forecast_24h.json` is still stale: 5,856 rows, no `grid_lat`, no `forecast_origin_ts`, no `target_ts`.
+- `data/predictions/metrics.json` is still absent.
+- Forecast artifacts were not regenerated in this pass.
+
 ## 4. Current In-Progress Work
 
 ### Task: Phase 5 verification and final polish
 
-- Current state: P0 train/inference lag mismatch fixed and full pytest passes; artifact regeneration remains partial
+- Current state: P0 train/inference lag mismatch and P1 forecast pollutant merge identity defects fixed; full pytest passes with 43 tests; artifact regeneration remains partial
 - Files involved: all source, tests, README, handoff
-- Blocker: standalone Spark train script runtime exceeded 5-minute smoke timeout on Windows local Spark in prior runs; current generated forecast artifact is stale and lacks `forecast_origin_ts`/`target_ts`
-- Next technical action: optimize or parameterize training hyperparameters so a small standalone train smoke completes and regenerates forecast JSON/metrics.json, then run browser visual QA for the frontend
+- Blocker: standalone Spark train script runtime exceeded 5-minute smoke timeout on Windows local Spark in prior runs; current generated forecast artifact is stale and lacks `grid_lat`, `forecast_origin_ts`, and `target_ts`
+- Next technical action: optimize or parameterize training hyperparameters so a small standalone train smoke completes and regenerates forecast JSON/metrics.json with the corrected lag and merge semantics, then run browser visual QA for the frontend
 
 ## 5. Data and Schema State
 
@@ -265,6 +304,8 @@ Actual fields include:
 Forecast JSON rows include:
 
 - `model`
+- `grid_lat`
+- `grid_lon`
 - `latitude`
 - `longitude`
 - `forecast_origin_ts`
@@ -316,6 +357,10 @@ Current API points include:
 - `python -m pytest` -> 42 passed after corrective P0 lag fix
 - Forecast artifact inspection: `data\predictions\forecast_24h.json` has 5,856 rows but no `forecast_origin_ts`/`target_ts`
 - Metrics artifact inspection: `data\predictions\metrics.json` is absent
+- `python -m pytest tests\test_forecast_outputs.py` -> 1 passed after P1 merge identity test rewrite
+- `python -m pytest tests\test_spark_features.py tests\test_forecast_outputs.py` -> 18 passed
+- `python -m pytest` -> 43 passed after P1 merge identity fix
+- Forecast artifact inspection after P1 fix: existing `data\predictions\forecast_24h.json` still has 5,856 rows and lacks `grid_lat`, `forecast_origin_ts`, and `target_ts`
 
 ### Failed or Partial Commands
 
@@ -323,14 +368,15 @@ Current API points include:
 - `python scripts\train_forecast_spark.py` with temp env paths and 4 sensors/3 days timed out after 304 seconds.
 - Attempts to leave uvicorn running with `Start-Process` failed due Windows `Path/PATH` duplicate environment issue; temporary `Start-Job` verification worked inside one command.
 - `python -m pytest tests\test_train_forecast_integration.py` with 120-second command timeout timed out before completion; rerun with longer timeout passed.
+- Initial `python -m pytest tests\test_forecast_outputs.py` failed because the test used a local Python-row Spark DataFrame that crashed the Windows Spark Python worker during Parquet write; test setup was rewritten and rerun successfully.
 
 ### Not Yet Run
 
 - OpenAQ ingestion with a real API key.
 - Real HDFS cluster write/read verification.
 - Browser screenshot/visual QA.
-- Long-running standalone Spark train completion after corrective lag fix.
-- Regeneration of forecast JSON and metrics artifacts after corrective lag fix.
+- Long-running standalone Spark train completion after corrective lag and merge-identity fixes.
+- Regeneration of forecast JSON and metrics artifacts after corrective lag and merge-identity fixes.
 
 ## 7. Test Status
 
@@ -338,6 +384,7 @@ Current API points include:
 |---|---|---|
 | AQI unit tests | PASS | `tests/test_aqi.py` in full pytest |
 | Spark feature tests | PASS | `tests/test_spark_features.py` passed standalone with 17 tests and in full pytest |
+| Forecast output tests | PASS | `tests/test_forecast_outputs.py` covers PM2.5/PM10 merge identity |
 | Horizon semantics tests | PASS | H+1..H+24 tests pass |
 | Storage tests | PASS | `tests/test_storage_phase2.py` pass |
 | API tests | PASS | `tests/test_api_phase3.py` pass |
@@ -349,7 +396,7 @@ Current API points include:
 Primary next action:
 
 ```text
-Optimize or parameterize scripts/train_forecast_spark.py so a small standalone Spark train run completes with the corrected inference lag semantics, regenerates forecast JSON with `forecast_origin_ts`/`target_ts`, writes metrics.json, then run browser visual QA for the Phase 4 frontend.
+Optimize or parameterize scripts/train_forecast_spark.py so a small standalone Spark train run completes with the corrected inference lag and forecast merge semantics, regenerates forecast JSON with `grid_lat`/`grid_lon`/`forecast_origin_ts`/`target_ts`, writes metrics.json, then run browser visual QA for the Phase 4 frontend.
 ```
 
 ## 9. Instructions for the Next Agent
@@ -364,6 +411,31 @@ Optimize or parameterize scripts/train_forecast_spark.py so a small standalone S
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
+- Phase 5 corrective implementation
+
+Work:
+
+- Verified the suspected P1 PM2.5/PM10 forecast merge identity defect in `scripts/train_forecast_spark.py`.
+- Changed `write_outputs()` to merge forecast pollutants by stable `grid_lat`/`grid_lon` instead of rounded display latitude/longitude.
+- Added `grid_lat` and `grid_lon` to generated forecast JSON rows.
+- Added regression coverage in `tests/test_forecast_outputs.py`.
+- Re-inspected existing generated artifacts; forecast JSON is still stale and metrics JSON is absent.
+
+Tests:
+
+- `python -m pytest tests\test_forecast_outputs.py` -> 1 passed after rewriting the test setup away from a local Python-row Spark DataFrame.
+- `python -m pytest tests\test_spark_features.py tests\test_forecast_outputs.py` -> 18 passed.
+- `python -m pytest` -> 43 passed.
+
+Result:
+
+- P1 merge identity defect is fixed and covered by regression tests.
+- Generated forecast/metrics artifacts still need regeneration after the standalone training runtime gap is addressed.
 
 ### 2026-07-08 - OpenAI Codex
 
