@@ -14,8 +14,8 @@ This repository is intentionally honest about what has and has not been verified
 | Backend APIs | VERIFIED | API tests cover current observations, forecast filtering, hotspots, metrics, and health behavior. |
 | Frontend dashboard | VERIFIED_LOCAL | Browser QA passed for desktop and mobile using local static assets; no console errors or failed requests were observed. |
 | Standalone Spark training script | VERIFIED_LOCAL_FAST | A local Spark run completed with runtime-size overrides and regenerated forecast/metrics artifacts. Default larger model settings may still run slower on Windows. |
-| OpenAQ live ingestion | NOT_VERIFIED | The code supports OpenAQ API v3, but a successful authenticated live run has not been recorded in this repository state. |
-| Real HDFS cluster writes | NOT_VERIFIED | `hdfs://` paths route through Spark/Hadoop-compatible write code, but no real cluster verification has been recorded. |
+| OpenAQ API | VERIFIED_AUTH_SMOKE | Authenticated OpenAQ v3 smoke passed for pollutant parameters and TP.HCM locations. Full measurement ingestion was not run to avoid mutating the HDFS dataset. |
+| Real HDFS cluster writes | VERIFIED | Spark read/write/append-dedup/delete verification passed against `hdfs://localhost:9000/aqi-hcmc`; training also wrote forecast parquet and model artifacts to HDFS. |
 
 ## What The System Does
 
@@ -173,6 +173,7 @@ The application reads `.env` through `src/config.py`.
 | `OPENAQ_BASE_URL` | `https://api.openaq.org/v3` | OpenAQ API base URL. |
 | `HCMC_BBOX` | `106.45,10.35,107.05,11.15` | Rough Ho Chi Minh City bounding box as `min_lon,min_lat,max_lon,max_lat`. |
 | `HDFS_BASE_PATH` | empty | Optional base path such as `hdfs://namenode:9000/aqi-hcmc`. Leave empty for local development. |
+| `HADOOP_USER_NAME` | empty | Optional HDFS client user for Windows-to-WSL local clusters, for example `minhduy`. |
 | `MEASUREMENTS_PATH` | `data/parquet/measurements` | Measurement Parquet dataset path. |
 | `PREDICTIONS_PATH` | `data/predictions/forecast_24h.json` | Forecast JSON artifact served by the API. |
 | `PREDICTIONS_PARQUET_PATH` | `data/predictions/forecast_24h_parquet` | Forecast Parquet artifact path. |
@@ -721,8 +722,8 @@ python scripts/train_forecast_spark.py
 Important limitations:
 
 - Measurement writes to `hdfs://` are routed through Spark and Hadoop filesystem APIs.
-- The repository currently does not contain evidence of a successful real HDFS cluster verification.
-- Do not claim HDFS is verified until you run it on a real cluster and update `docs/AGENT_HANDOFF.md`.
+- Real HDFS verification has been run against `hdfs://localhost:9000/aqi-hcmc`.
+- From Windows, set `HADOOP_USER_NAME` to the HDFS owner user if HDFS rejects writes from the Windows account name.
 
 ## Testing
 
@@ -843,8 +844,8 @@ This usually means one or more local artifacts are missing. It is expected befor
 ## Known Limitations
 
 - This is a batch system, not true realtime streaming.
-- OpenAQ live ingestion has not been verified in the current repository state.
-- Real HDFS cluster writes have not been verified in the current repository state.
+- OpenAQ authenticated API smoke has been verified, but a full measurement ingestion run was not performed in the latest verification pass.
+- Real HDFS read/write, append/dedup, API health/current reads, training forecast parquet writes, and model artifact writes have been verified against the local WSL-backed HDFS endpoint.
 - Default-size standalone Spark training may still be slow on Windows local Spark; a local-fast run with runtime-size overrides has been verified.
 - Public OpenAQ coverage for Ho Chi Minh City may be sparse or inconsistent depending on sensor availability and the selected time window.
 - The synthetic generator is for demos and repeatable development only. It must not be presented as real sensor data.
@@ -861,4 +862,4 @@ After meaningful implementation work:
 6. Record known bugs and unverified items honestly.
 7. Keep the "Exact Next Step" section in `docs/AGENT_HANDOFF.md` current.
 
-Do not mark OpenAQ, HDFS, frontend visual QA, or full Spark training as verified without actual successful evidence.
+Do not mark full OpenAQ measurement ingestion as verified without an actual successful ingestion run.

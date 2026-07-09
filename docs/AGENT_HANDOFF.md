@@ -8,9 +8,9 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
 - Latest commit: `e648c33 update 3`
-- Working tree: modified `.env.example`, `README.md`, `requirements.txt`, `app/static/*`, `docs/AGENT_HANDOFF.md`, `scripts/train_forecast_spark.py`, `tests/test_train_forecast_integration.py`; untracked `app/static/vendor/`, `tests/test_frontend_static.py`, `.claude/`; regenerated `data/`, `models/`, and `logs/` are ignored
+- Working tree: modified `.gitignore`, `README.md`, `docs/AGENT_HANDOFF.md`, `src/openaq_client.py`; untracked `.claude/`, `.venv-wsl/`, `tests/test_openaq_client.py`; regenerated `data/`, `models`, and `logs/` are ignored
 - Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: local artifact regeneration, API health, frontend offline/browser QA, and regression tests completed; next is real OpenAQ/HDFS verification if credentials/cluster are available
+- Active task: real HDFS verification, HDFS-backed API smoke, HDFS-backed training, and OpenAQ authenticated API smoke completed; next is optional full OpenAQ measurement ingestion if dataset mutation is desired
 - Last updated: 2026-07-09
 - Last agent: OpenAI Codex
 
@@ -19,12 +19,12 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 | Phase | Status | Verified | Notes |
 |---|---|---|---|
 | Phase 1 - Correctness Foundation | COMPLETED | YES | Full pytest passes; Spark feature/AQI tests cover hourly regularization, H+1..H+24, timezone, AQI edge cases |
-| Phase 2 - Ingestion, Storage, ML Evaluation | LOCAL_FAST_VERIFIED | PARTIAL | Unit/integration tests pass; local Spark training completed with runtime-size overrides and regenerated forecast/metrics artifacts; real OpenAQ/HDFS still not verified |
-| Phase 3 - Backend APIs and Freshness | COMPLETED | YES | API tests and temporary uvicorn HTTP verification pass |
+| Phase 2 - Ingestion, Storage, ML Evaluation | HDFS_VERIFIED | PARTIAL | Unit/integration tests pass; real HDFS read/write/append-dedup/delete passed; HDFS-backed training completed; OpenAQ API smoke passed but full ingestion was not run |
+| Phase 3 - Backend APIs and Freshness | COMPLETED | YES | API tests and HTTP verification pass; `/api/current` and `/api/health` now support HDFS measurements |
 | Phase 4 - Frontend via /taste | LOCAL_VERIFIED | YES_LOCAL | `/taste` skill was unavailable; used `impeccable` design context instead. Browser QA passed desktop/mobile with local static assets |
-| Phase 5 - Verification and Documentation | IN_PROGRESS | PARTIAL | README and handoff updated; OpenAQ real run and HDFS cluster verification not run |
+| Phase 5 - Verification and Documentation | IN_PROGRESS | PARTIAL | README and handoff updated; HDFS verified; OpenAQ authenticated API smoke verified; full OpenAQ measurement ingestion not run |
 
-Do not mark OpenAQ live ingestion or real HDFS complete until the verification gaps below are resolved or deliberately accepted.
+Do not mark full OpenAQ measurement ingestion complete until it is deliberately run and recorded.
 
 ## 3. Work Completed
 
@@ -398,7 +398,7 @@ Current API points include:
 Primary next action:
 
 ```text
-Run real OpenAQ ingestion with a valid API key and/or real HDFS cluster verification when those external dependencies are available. Otherwise, continue with default-size training performance tuning if production-sized local models are required.
+Optionally run a bounded real OpenAQ measurement ingestion into HDFS if mutating the current HDFS measurement dataset is desired. Otherwise continue with default-size training performance tuning if production-sized local models are required.
 ```
 
 ## 9. Instructions for the Next Agent
@@ -407,12 +407,51 @@ Run real OpenAQ ingestion with a valid API key and/or real HDFS cluster verifica
 2. Read this handoff completely.
 3. Inspect `git status`, `git diff`, and recent commits.
 4. Treat source code and tests as stronger evidence than this document.
-5. Do not claim real HDFS or OpenAQ success until actually run.
+5. HDFS and OpenAQ authenticated API smoke have been run; do not claim full OpenAQ measurement ingestion until actually run.
 6. Do not mark Phase 2 complete until the standalone train smoke gap is resolved or explicitly accepted.
 7. Do not mark Phase 4 complete until visual/browser QA is run.
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
+- Phase 5 real HDFS and OpenAQ verification
+
+Work:
+
+- Verified `hdfs://localhost:9000/aqi-hcmc` is reachable from Windows/Spark even though `wsl.exe` is not available inside this Codex process.
+- Added HDFS support to `app/main.py` for `/api/current` measurement reads and `/api/health` artifact checks using Spark/Hadoop APIs.
+- Fixed HDFS artifact status to instantiate Hadoop `FileSystem` from the `hdfs://...` URI instead of the default local filesystem.
+- Fixed HDFS measurement writes in `src/io.py` to avoid `spark.createDataFrame(pandas_df)` Python-worker crashes on Windows by writing a temporary local Parquet batch and letting Spark read it.
+- Added `HADOOP_USER_NAME` to `.env.example`; local `.env` was updated to use the HDFS owner user `minhduy`.
+- Fixed OpenAQ `/parameters` smoke failure by removing `bbox` from the global parameters endpoint in `src/openaq_client.py`; bbox filtering remains on `/locations`.
+- Added regression tests for HDFS-backed API behavior and OpenAQ request construction.
+
+Commands:
+
+- `Test-NetConnection localhost -Port 9000` -> `TcpTestSucceeded=True`.
+- `Test-NetConnection localhost -Port 9870` -> `TcpTestSucceeded=True`.
+- Spark HDFS read verification -> measurements path exists and reads 6,720 rows (`pm10=3,360`, `pm25=3,360`).
+- API smoke before fix -> `/api/current` read 19 HDFS points, but `/api/health` reported `Wrong FS`; fixed by URI-based Hadoop FS.
+- API smoke after fix -> `/api/health` `ok`, HDFS measurements `exists=True`, `/api/current` 19 points, `/api/forecast` 19 points, metrics available with 48 rows for one model/split.
+- Real HDFS write verification first failed with permission denied as Windows user `HOMIE PC`; rerun with `HADOOP_USER_NAME=minhduy` passed.
+- Real HDFS write/read/append-dedup/delete verification -> wrote 2 rows, read 2, append dedup stayed 2, temp path deleted.
+- HDFS-backed `scripts\train_forecast_spark.py` with local-fast model env overrides -> PASS, wrote forecast JSON locally and forecast parquet to `hdfs://localhost:9000/aqi-hcmc/data/predictions/forecast_24h_parquet`.
+- HDFS artifact verification -> measurements exists/count 6,720; forecast parquet exists/count 1,824; RF PM2.5 and GBT PM10 model dirs exist on HDFS.
+- Uvicorn HTTP smoke -> `/` 200, `/api/health` `ok`, `/api/current` 19, `/api/forecast` 19, current hotspots 10, metrics 48.
+- OpenAQ authenticated API smoke -> parameters `{'pm10': 1, 'pm25': 2}`, locations count 2 with ids `[2446, 7440]`.
+- `python -m pytest tests\test_storage_phase2.py tests\test_api_phase3.py` -> 6 passed.
+- `python -m pytest tests\test_openaq_client.py` -> 2 passed.
+- `python -m pytest` -> 48 passed.
+
+Result:
+
+- Real HDFS is now verified for read, write, append/dedup, delete, API health/current, training forecast parquet output, and model artifact output.
+- OpenAQ authenticated API access is verified for parameters and locations.
+- Full OpenAQ measurement ingestion was intentionally not run to avoid mutating the HDFS measurement dataset without explicit confirmation.
 
 ### 2026-07-09 - OpenAI Codex
 

@@ -54,6 +54,6 @@ build/
 dist/
 *.egg-info/
 # MD file
-impeccable.md
+.impeccable.md
 AGENTS.md
 CLAUDE.md

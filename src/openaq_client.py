@@ -47,8 +47,9 @@ class OpenAQClient:
             time.sleep(self.pause_seconds)
 
     def parameter_ids(self, bbox: str) -> dict[str, int]:
+        # OpenAQ v3 `/parameters` is global. Passing bbox currently returns a
+        # server-side 500, so bbox filtering belongs on `/locations` instead.
         params = {
-            "bbox": bbox,
             "parameter_type": "pollutant",
             "limit": 100,
             "order_by": "id",
