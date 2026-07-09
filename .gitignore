@@ -53,3 +53,7 @@ models/
 build/
 dist/
 *.egg-info/
+# MD file
+impeccable.md
+AGENTS.md
+CLAUDE.md
