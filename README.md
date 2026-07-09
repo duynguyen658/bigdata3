@@ -13,7 +13,7 @@ This repository is intentionally honest about what has and has not been verified
 | Local Parquet storage | VERIFIED | Tests cover append, overwrite, partitioning, and deduplication by stable measurement identity. |
 | Backend APIs | VERIFIED | API tests cover current observations, forecast filtering, hotspots, metrics, and health behavior. |
 | Frontend dashboard | VERIFIED_LOCAL | Browser QA passed for desktop and mobile using local static assets; no console errors or failed requests were observed. |
-| Standalone Spark training script | VERIFIED_LOCAL_FAST | A local Spark run completed with runtime-size overrides and regenerated forecast/metrics artifacts. Default larger model settings may still run slower on Windows. |
+| Spark training script | VERIFIED_HDFS_FAST | A local-fast Spark run completed with HDFS measurements, HDFS forecast Parquet/model output, and local forecast/metrics JSON artifacts. Default larger model settings may still run slower on Windows. |
 | OpenAQ API | VERIFIED_AUTH_SMOKE | Authenticated OpenAQ v3 smoke passed for pollutant parameters and TP.HCM locations. Full measurement ingestion was not run to avoid mutating the HDFS dataset. |
 | Real HDFS cluster writes | VERIFIED | Spark read/write/append-dedup/delete verification passed against `hdfs://localhost:9000/aqi-hcmc`; training also wrote forecast parquet and model artifacts to HDFS. |
 
@@ -97,6 +97,7 @@ app/
     index.html            Dashboard shell
     styles.css            Dashboard styles
     app.js                Frontend data loading and Leaflet behavior
+    vendor/               Vendored Leaflet and heatmap runtime assets
 
 src/
   aqi.py                  U.S. EPA AQI calculation for PM2.5 and PM10
@@ -114,6 +115,8 @@ tests/
   test_spark_features.py            Spark feature and horizon tests
   test_storage_phase2.py            Storage and metrics serialization tests
   test_api_phase3.py                FastAPI endpoint tests
+  test_frontend_static.py           Frontend static dependency tests
+  test_openaq_client.py             OpenAQ client request-shape tests
   test_train_forecast_integration.py Spark train/forecast integration smoke test
 
 docs/
@@ -130,14 +133,16 @@ models/                   Local Spark model artifacts, ignored by git
 The project is Python-based and currently pins:
 
 - Python 3.11 or newer is recommended.
-- FastAPI `0.116.0`
-- Uvicorn `0.35.0`
-- pandas `2.3.1`
-- pyarrow `20.0.0`
-- PySpark `4.0.0`
-- pytest `9.0.2`
-- requests `2.32.4`
-- python-dotenv `1.1.1`
+- FastAPI `0.135.2`
+- Uvicorn `0.42.0`
+- pandas `2.3.3`
+- pyarrow `21.0.0`
+- PySpark `3.5.3`
+- pytest `8.4.2`
+- requests `2.32.5`
+- python-dotenv `1.1.0`
+- httpx `0.28.1`
+- Playwright `1.61.0`
 
 Install Java before running Spark locally. PySpark requires a working Java runtime. Java 17 is a safe default for modern Spark development environments.
 
@@ -162,6 +167,12 @@ cp .env.example .env
 ```
 
 Then edit `.env` as needed.
+
+For browser QA, install the Chromium runtime once if Playwright has not already downloaded it:
+
+```powershell
+python -m playwright install chromium
+```
 
 ## Configuration
 
@@ -495,6 +506,8 @@ Forecast JSON rows include:
 
 ```text
 model
+grid_lat
+grid_lon
 latitude
 longitude
 forecast_origin_ts
@@ -554,7 +567,7 @@ Example response shape:
 
 ### `GET /api/current`
 
-Returns latest available local measurement points by grid cell.
+Returns latest available measurement points by grid cell. The measurement source can be local Parquet or an `hdfs://` dataset, depending on `HDFS_BASE_PATH`.
 
 Important fields:
 
@@ -671,14 +684,14 @@ If the metrics artifact is missing, the response has:
 
 ### `GET /api/health`
 
-Reports local artifact availability.
+Reports artifact availability.
 
-For local paths, the API checks whether files/directories exist. For `hdfs://` paths, the local FastAPI process reports that direct checking is unsupported rather than pretending the HDFS path is healthy.
+For local paths, the API checks whether files/directories exist. For `hdfs://` paths, it checks existence through Spark/Hadoop filesystem APIs.
 
 Health status:
 
-- `ok` when local checked artifacts exist.
-- `degraded` when one or more local checked artifacts are missing, or no checked artifact is available.
+- `ok` when checked artifacts exist.
+- `degraded` when one or more checked artifacts are missing or cannot be checked successfully.
 
 ## Frontend Dashboard
 
@@ -712,6 +725,13 @@ For a Hadoop/HDFS environment, configure:
 HDFS_BASE_PATH=hdfs://namenode:9000/aqi-hcmc
 ```
 
+For the verified local WSL-backed HDFS setup, the working value was:
+
+```env
+HDFS_BASE_PATH=hdfs://localhost:9000/aqi-hcmc
+HADOOP_USER_NAME=minhduy
+```
+
 Then run ingestion/training normally:
 
 ```powershell
@@ -724,6 +744,7 @@ Important limitations:
 - Measurement writes to `hdfs://` are routed through Spark and Hadoop filesystem APIs.
 - Real HDFS verification has been run against `hdfs://localhost:9000/aqi-hcmc`.
 - From Windows, set `HADOOP_USER_NAME` to the HDFS owner user if HDFS rejects writes from the Windows account name.
+- With `HDFS_BASE_PATH` set, measurement Parquet, forecast Parquet, and Spark model paths use HDFS. The forecast JSON and metrics JSON are still written to the configured local JSON paths so FastAPI can serve them directly.
 
 ## Testing
 
@@ -740,6 +761,8 @@ python -m pytest tests/test_aqi.py
 python -m pytest tests/test_spark_features.py
 python -m pytest tests/test_storage_phase2.py
 python -m pytest tests/test_api_phase3.py
+python -m pytest tests/test_frontend_static.py
+python -m pytest tests/test_openaq_client.py
 python -m pytest tests/test_train_forecast_integration.py
 ```
 
@@ -755,6 +778,9 @@ Expected coverage areas:
 - Local Parquet append, overwrite, partitioning, and deduplication.
 - Metrics JSON serialization.
 - FastAPI current, forecast, hotspot, metrics, and health endpoints.
+- HDFS-backed API current/health behavior.
+- OpenAQ request construction for parameters and locations.
+- Frontend local runtime asset usage.
 - Spark training/forecast integration.
 
 On Windows, PySpark tests may require running outside restrictive sandboxes because local Spark workers use local processes and loopback communication.
@@ -799,6 +825,29 @@ uvicorn app.main:app --reload
 
 Do this only after setting `OPENAQ_API_KEY`.
 
+### Run with verified local HDFS
+
+```powershell
+$env:HADOOP_USER_NAME='minhduy'
+$env:AQI_RF_NUM_TREES='6'
+$env:AQI_RF_MAX_DEPTH='5'
+$env:AQI_GBT_MAX_ITER='8'
+$env:AQI_GBT_MAX_DEPTH='3'
+$env:AQI_GBT_STEP_SIZE='0.1'
+python scripts/train_forecast_spark.py
+uvicorn app.main:app --reload
+```
+
+With `.env` configured for `HDFS_BASE_PATH=hdfs://localhost:9000/aqi-hcmc`, the latest verified run produced:
+
+```text
+HDFS measurements: 6,720 rows
+HDFS forecast parquet: 1,824 rows
+API /api/current: 19 points
+API /api/forecast?horizon=1&model=random_forest: 19 points
+API /api/metrics?model=random_forest&split=test: 48 rows
+```
+
 ## Troubleshooting
 
 ### `OPENAQ_API_KEY is required for real OpenAQ ingestion.`
@@ -839,7 +888,12 @@ If training does not complete, the API will correctly avoid serving fake metrics
 
 ### Health is `degraded`
 
-This usually means one or more local artifacts are missing. It is expected before generating measurements, forecasts, and metrics.
+This usually means one or more artifacts are missing or cannot be checked. For HDFS, confirm that:
+
+- NameNode RPC is reachable, for example `localhost:9000`;
+- `HDFS_BASE_PATH` points to the correct namespace;
+- `HADOOP_USER_NAME` matches a user allowed to read/write the target HDFS directories;
+- local forecast JSON and metrics JSON exist if the API is expected to serve forecasts and metrics.
 
 ## Known Limitations
 

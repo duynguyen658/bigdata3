@@ -418,6 +418,28 @@ Optionally run a bounded real OpenAQ measurement ingestion into HDFS if mutating
 
 Phase:
 
+- Phase 5 documentation maintenance
+
+Work:
+
+- Updated `README.md` to match the latest verified HDFS/OpenAQ/API/frontend state.
+- Corrected pinned dependency versions to match `requirements.txt`.
+- Updated API health documentation to reflect real Spark/Hadoop checks for `hdfs://` paths.
+- Added documentation for vendored frontend assets, OpenAQ client tests, frontend static tests, and the verified local HDFS workflow.
+- Clarified that HDFS-backed runs write measurement Parquet, forecast Parquet, and Spark model artifacts to HDFS while forecast JSON and metrics JSON remain local for FastAPI serving.
+
+Commands:
+
+- `python -m pytest tests\test_openaq_client.py tests\test_frontend_static.py tests\test_api_phase3.py` -> 6 passed.
+
+Result:
+
+- README now reflects the current verified state without claiming full OpenAQ measurement ingestion.
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
 - Phase 5 real HDFS and OpenAQ verification
 
 Work:
