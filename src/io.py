@@ -65,6 +65,29 @@ def _write_local_measurements(frame: pd.DataFrame, path: str, mode: str) -> int:
     return len(frame)
 
 
+def _spark_filesystem_and_path(spark, path: str):
+    hadoop_conf = spark._jsc.hadoopConfiguration()
+    uri = spark._jvm.java.net.URI.create(path)
+    fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
+    return fs, spark._jvm.org.apache.hadoop.fs.Path(path)
+
+
+def _spark_path_exists(spark, path: str) -> bool:
+    fs, hadoop_path = _spark_filesystem_and_path(spark, path)
+    return bool(fs.exists(hadoop_path))
+
+
+def _combine_spark_measurements_for_write(spark, batch, path: str, mode: str):
+    if mode == "append":
+        if not _spark_path_exists(spark, path):
+            return batch
+        existing = spark.read.parquet(path)
+        return existing.unionByName(batch, allowMissingColumns=True)
+    if mode == "overwrite":
+        return batch
+    raise ValueError("mode must be 'append' or 'overwrite'")
+
+
 def _write_spark_measurements(frame: pd.DataFrame, path: str, mode: str) -> int:
     from pyspark.sql import SparkSession, Window
     from pyspark.sql import functions as F
@@ -74,16 +97,7 @@ def _write_spark_measurements(frame: pd.DataFrame, path: str, mode: str) -> int:
         batch_path = Path(temp_dir) / "batch.parquet"
         frame.to_parquet(batch_path, index=False)
         batch = spark.read.parquet(batch_path.as_posix())
-        if mode == "append":
-            try:
-                existing = spark.read.parquet(path)
-                combined = existing.unionByName(batch, allowMissingColumns=True)
-            except Exception:
-                combined = batch
-        elif mode == "overwrite":
-            combined = batch
-        else:
-            raise ValueError("mode must be 'append' or 'overwrite'")
+        combined = _combine_spark_measurements_for_write(spark, batch, path, mode)
 
         w = Window.partitionBy(*MEASUREMENT_ID_COLUMNS).orderBy(F.col("datetime_utc").desc())
         deduped = combined.withColumn("_rank", F.row_number().over(w)).where("_rank = 1").drop("_rank")
@@ -92,10 +106,7 @@ def _write_spark_measurements(frame: pd.DataFrame, path: str, mode: str) -> int:
         tmp_path = f"{path.rstrip('/')}_tmp_write"
         deduped.write.mode("overwrite").partitionBy(*PARTITION_COLUMNS).parquet(tmp_path)
 
-        hadoop_conf = spark._jsc.hadoopConfiguration()
-        uri = spark._jvm.java.net.URI.create(path)
-        fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
-        final = spark._jvm.org.apache.hadoop.fs.Path(path)
+        fs, final = _spark_filesystem_and_path(spark, path)
         tmp = spark._jvm.org.apache.hadoop.fs.Path(tmp_path)
         if fs.exists(final):
             fs.delete(final, True)

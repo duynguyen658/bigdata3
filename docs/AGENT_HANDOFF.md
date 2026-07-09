@@ -7,10 +7,10 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
-- Latest commit: `e648c33 update 3`
-- Working tree: modified `.gitignore`, `README.md`, `docs/AGENT_HANDOFF.md`, `src/openaq_client.py`; untracked `.claude/`, `.venv-wsl/`, `tests/test_openaq_client.py`; regenerated `data/`, `models`, and `logs/` are ignored
+- Latest commit: `e7ad45a update readme`
+- Working tree: modified `src/io.py`, `tests/test_storage_phase2.py`, and `docs/AGENT_HANDOFF.md`; untracked `.claude/`; regenerated `data/`, `models`, and `logs/` are ignored
 - Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: real HDFS verification, HDFS-backed API smoke, HDFS-backed training, and OpenAQ authenticated API smoke completed; next is optional full OpenAQ measurement ingestion if dataset mutation is desired
+- Active task: focused corrective hardening for HDFS append error semantics in measurement storage
 - Last updated: 2026-07-09
 - Last agent: OpenAI Codex
 
@@ -145,6 +145,40 @@ Implementation:
 
 - Ignores Python caches, env files, logs, Spark/Hadoop artifacts, `data/`, `models/`, and large local analytical outputs.
 
+### Phase 5 Corrective P1 HDFS Append Error Semantics Fix
+
+Files:
+
+- `src/io.py`
+- `tests/test_storage_phase2.py`
+- `docs/AGENT_HANDOFF.md`
+
+Issue classification:
+
+- `CONFIRMED`
+
+Verified defect:
+
+- `_write_spark_measurements()` treated every exception from `spark.read.parquet(path)` during append as if the existing dataset did not exist.
+- This could hide real HDFS failures such as permission errors, schema/read failures, or corrupt datasets and continue with only the new batch.
+
+Implementation:
+
+- Added Spark/Hadoop filesystem helpers to check path existence through the URI-backed Hadoop `FileSystem`.
+- Append mode now reads and unions the existing dataset only when the path exists.
+- Missing HDFS path still starts a new dataset from the batch.
+- Existing dataset read errors now propagate instead of being swallowed.
+- Reused the same URI-backed filesystem helper for final temp-path replacement.
+
+Regression tests:
+
+- Added `test_spark_append_propagates_existing_dataset_read_errors`.
+
+Verification:
+
+- `python -m pytest tests\test_storage_phase2.py tests\test_api_phase3.py tests\test_openaq_client.py` -> 9 passed.
+- `python -m pytest` -> 49 passed.
+
 ### Phase 5 Documentation Update
 
 Files:
@@ -244,10 +278,10 @@ Artifact note:
 
 ### Task: Phase 5 verification and final polish
 
-- Current state: P0 train/inference lag mismatch and P1 forecast pollutant merge identity defects fixed; full pytest passes with 43 tests; artifact regeneration remains partial
-- Files involved: all source, tests, README, handoff
-- Blocker: standalone Spark train script runtime exceeded 5-minute smoke timeout on Windows local Spark in prior runs; current generated forecast artifact is stale and lacks `grid_lat`, `forecast_origin_ts`, and `target_ts`
-- Next technical action: optimize or parameterize training hyperparameters so a small standalone train smoke completes and regenerates forecast JSON/metrics.json with the corrected lag and merge semantics, then run browser visual QA for the frontend
+- Current state: P0 train/inference lag mismatch, P1 forecast pollutant merge identity, and P1 HDFS append error semantics defects are fixed; full pytest passes with 49 tests.
+- Files involved in the latest corrective pass: `src/io.py`, `tests/test_storage_phase2.py`, `docs/AGENT_HANDOFF.md`.
+- Blocker: full OpenAQ measurement ingestion into the current HDFS dataset has not been run because it would mutate the verified dataset.
+- Next technical action: optionally run a bounded real OpenAQ measurement ingestion into HDFS if dataset mutation is desired; otherwise continue with default-size training performance tuning if production-sized local models are required.
 
 ## 5. Data and Schema State
 
@@ -372,11 +406,8 @@ Current API points include:
 
 ### Not Yet Run
 
-- OpenAQ ingestion with a real API key.
-- Real HDFS cluster write/read verification.
-- Browser screenshot/visual QA.
-- Long-running standalone Spark train completion after corrective lag and merge-identity fixes.
-- Regeneration of forecast JSON and metrics artifacts after corrective lag and merge-identity fixes.
+- Full OpenAQ measurement ingestion into the current HDFS dataset.
+- Default-size production-style training performance tuning on Windows local Spark.
 
 ## 7. Test Status
 
@@ -408,11 +439,41 @@ Optionally run a bounded real OpenAQ measurement ingestion into HDFS if mutating
 3. Inspect `git status`, `git diff`, and recent commits.
 4. Treat source code and tests as stronger evidence than this document.
 5. HDFS and OpenAQ authenticated API smoke have been run; do not claim full OpenAQ measurement ingestion until actually run.
-6. Do not mark Phase 2 complete until the standalone train smoke gap is resolved or explicitly accepted.
-7. Do not mark Phase 4 complete until visual/browser QA is run.
+6. Do not claim full OpenAQ measurement ingestion until an actual ingestion run is completed and recorded.
+7. Preserve the current HDFS/forecast/frontend verified behavior unless a new verified defect is found.
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
+- Phase 5 corrective hardening
+
+Work:
+
+- Verified the suspected P1 HDFS append error semantics defect in `src/io.py`.
+- Classified the issue as `CONFIRMED`.
+- Replaced broad read-error swallowing in Spark/HDFS append mode with an explicit Hadoop filesystem existence check.
+- Preserved missing-path append behavior while allowing real read failures to propagate.
+- Added regression coverage for existing-dataset read failures.
+
+Commands:
+
+- `git status --short`
+- `git diff --stat`
+- `git log --oneline -n 15`
+- `git branch --show-current`
+- `git ls-files AGENTS.md CLAUDE.md`
+- `git check-ignore -v AGENTS.md CLAUDE.md` -> both ignored by `.gitignore`
+- `python -m pytest tests\test_storage_phase2.py tests\test_api_phase3.py tests\test_openaq_client.py` -> 9 passed.
+- `python -m pytest` -> 49 passed.
+
+Result:
+
+- HDFS append now distinguishes a missing dataset from real read failures.
+- No unrelated architecture, frontend, OpenAQ, AQI, or forecasting behavior was changed.
 
 ### 2026-07-09 - OpenAI Codex
 

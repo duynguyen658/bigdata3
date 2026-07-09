@@ -5,9 +5,10 @@ import math
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import pytest
 
 from scripts.train_forecast_spark import write_metrics
-from src.io import write_measurements_parquet
+from src.io import _combine_spark_measurements_for_write, write_measurements_parquet
 
 
 BASE_UTC = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -74,6 +75,26 @@ def test_write_measurements_overwrite_replaces_existing_dataset(tmp_path):
     assert len(rows) == 1
     assert rows.iloc[0]["sensor_id"] == 2
     assert rows.iloc[0]["parameter"] == "pm10"
+
+
+def test_spark_append_propagates_existing_dataset_read_errors(monkeypatch):
+    class FailingReader:
+        def parquet(self, path):
+            raise RuntimeError(f"cannot read {path}")
+
+    class FakeSpark:
+        read = FailingReader()
+
+    batch = object()
+    monkeypatch.setattr("src.io._spark_path_exists", lambda spark, path: True)
+
+    with pytest.raises(RuntimeError, match="cannot read hdfs://namenode:9000/aqi/measurements"):
+        _combine_spark_measurements_for_write(
+            FakeSpark(),
+            batch,
+            "hdfs://namenode:9000/aqi/measurements",
+            mode="append",
+        )
 
 
 def test_write_metrics_serializes_non_finite_values_as_null(tmp_path):
