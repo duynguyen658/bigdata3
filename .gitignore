@@ -16,7 +16,7 @@ ENV/
 .env
 .env.*
 !.env.example
-
+.venv-wsl/
 # IDE and OS files
 .idea/
 .vscode/

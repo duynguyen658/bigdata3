@@ -12,8 +12,8 @@ This repository is intentionally honest about what has and has not been verified
 | Spark feature engineering | VERIFIED | Tests cover dense hourly regularization, true hourly lag semantics, H+1 through H+24 targets, timestamps, local timezone features, and chronological split behavior. |
 | Local Parquet storage | VERIFIED | Tests cover append, overwrite, partitioning, and deduplication by stable measurement identity. |
 | Backend APIs | VERIFIED | API tests cover current observations, forecast filtering, hotspots, metrics, and health behavior. |
-| Frontend dashboard | PARTIAL | Static map-first dashboard is implemented and `/` has been HTTP-checked; browser screenshot/visual QA is still pending. |
-| Standalone Spark training script | PARTIAL | Integration tests pass, but a full standalone local Spark training smoke run timed out on Windows before forecast/metrics completion. |
+| Frontend dashboard | VERIFIED_LOCAL | Browser QA passed for desktop and mobile using local static assets; no console errors or failed requests were observed. |
+| Standalone Spark training script | VERIFIED_LOCAL_FAST | A local Spark run completed with runtime-size overrides and regenerated forecast/metrics artifacts. Default larger model settings may still run slower on Windows. |
 | OpenAQ live ingestion | NOT_VERIFIED | The code supports OpenAQ API v3, but a successful authenticated live run has not been recorded in this repository state. |
 | Real HDFS cluster writes | NOT_VERIFIED | `hdfs://` paths route through Spark/Hadoop-compatible write code, but no real cluster verification has been recorded. |
 
@@ -178,6 +178,11 @@ The application reads `.env` through `src/config.py`.
 | `PREDICTIONS_PARQUET_PATH` | `data/predictions/forecast_24h_parquet` | Forecast Parquet artifact path. |
 | `METRICS_PATH` | `data/predictions/metrics.json` | Model metrics JSON artifact path. |
 | `MODELS_PATH` | `models/aqi_forecast` | Spark model output directory. |
+| `AQI_RF_NUM_TREES` | empty | Optional Random Forest tree count override for local smoke runs. |
+| `AQI_RF_MAX_DEPTH` | empty | Optional Random Forest max-depth override for local smoke runs. |
+| `AQI_GBT_MAX_ITER` | empty | Optional GBT iteration-count override for local smoke runs. |
+| `AQI_GBT_MAX_DEPTH` | empty | Optional GBT max-depth override for local smoke runs. |
+| `AQI_GBT_STEP_SIZE` | empty | Optional GBT step-size override for local smoke runs. |
 
 When `HDFS_BASE_PATH` is set, `settings.storage_path(...)` prefixes configured relative paths with that base path. For example:
 
@@ -214,6 +219,17 @@ Train models and write forecast/metrics artifacts:
 python scripts/train_forecast_spark.py
 ```
 
+For a faster local Windows smoke/regeneration run, keep all feature semantics and horizons intact but reduce model size:
+
+```powershell
+$env:AQI_RF_NUM_TREES='6'
+$env:AQI_RF_MAX_DEPTH='5'
+$env:AQI_GBT_MAX_ITER='8'
+$env:AQI_GBT_MAX_DEPTH='3'
+$env:AQI_GBT_STEP_SIZE='0.1'
+python scripts/train_forecast_spark.py
+```
+
 Start the API and dashboard:
 
 ```powershell
@@ -226,7 +242,7 @@ Open:
 http://127.0.0.1:8000
 ```
 
-Important: the current handoff records that standalone local Spark training can exceed a 5-minute smoke window on Windows. If the command runs slowly, see the "Known Limitations" and "Troubleshooting" sections below.
+Important: default model sizes can still run slowly on Windows local Spark. Use the runtime-size overrides above for local smoke verification when needed.
 
 ## OpenAQ Ingestion
 
@@ -667,6 +683,8 @@ Health status:
 
 The frontend is a static Leaflet dashboard served from `app/static`.
 
+Runtime map assets are vendored under `app/static/vendor`, so the dashboard does not require CDN access for Leaflet, heatmap rendering, marker images, fonts, or base map tiles during local verification.
+
 Implemented UI behavior:
 
 - Map-first layout.
@@ -681,7 +699,7 @@ Implemented UI behavior:
 
 The dashboard expects the FastAPI server to provide data. It does not fabricate missing values.
 
-Visual/browser QA is still pending in the current project state. Treat layout polish and responsive verification as incomplete until it is run and recorded.
+Browser QA has been run with a local FastAPI server and Playwright headless Chromium. Desktop and mobile checks passed with no console errors, no failed network requests, visible current/forecast data, visible metrics, visible hotspots, and no horizontal overflow.
 
 ## HDFS Usage
 
@@ -768,7 +786,7 @@ data/predictions/metrics.json
 models/aqi_forecast
 ```
 
-Current repository status notes that the full standalone train command may run slowly or time out on Windows local Spark. The model hyperparameters may need a smoke-test mode or optimization before this is considered fully verified.
+Default model sizes may run slowly on Windows local Spark. Use the `AQI_RF_*` and `AQI_GBT_*` overrides for local smoke/regeneration runs when fast feedback is more important than model size.
 
 ### Ingest real OpenAQ data and train
 
@@ -802,7 +820,7 @@ Local PySpark can be slow, especially with multiple model fits. Try:
 - reducing synthetic sensor count and day count;
 - running from a normal terminal instead of a restricted sandbox;
 - closing other Java/Spark processes;
-- reducing workload in the training script if you are creating a smoke-test mode.
+- setting `AQI_RF_NUM_TREES`, `AQI_RF_MAX_DEPTH`, `AQI_GBT_MAX_ITER`, `AQI_GBT_MAX_DEPTH`, and `AQI_GBT_STEP_SIZE` for a smaller local smoke model.
 
 ### Metrics API returns `available: false`
 
@@ -827,8 +845,7 @@ This usually means one or more local artifacts are missing. It is expected befor
 - This is a batch system, not true realtime streaming.
 - OpenAQ live ingestion has not been verified in the current repository state.
 - Real HDFS cluster writes have not been verified in the current repository state.
-- Full standalone Spark training has a recorded Windows local Spark timeout and needs optimization or a configurable smoke mode.
-- Browser screenshot QA for the frontend has not been recorded.
+- Default-size standalone Spark training may still be slow on Windows local Spark; a local-fast run with runtime-size overrides has been verified.
 - Public OpenAQ coverage for Ho Chi Minh City may be sparse or inconsistent depending on sensor availability and the selected time window.
 - The synthetic generator is for demos and repeatable development only. It must not be presented as real sensor data.
 

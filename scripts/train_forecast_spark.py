@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -23,22 +24,40 @@ SPLIT_TRAIN_FRACTION = 0.70
 SPLIT_VALIDATION_FRACTION = 0.15
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name, "").strip()
+    return int(value) if value else default
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name, "").strip()
+    return float(value) if value else default
+
+
+def _random_forest_regressor() -> RandomForestRegressor:
+    return RandomForestRegressor(
+        featuresCol="features",
+        labelCol="label",
+        numTrees=_env_int("AQI_RF_NUM_TREES", 24),
+        maxDepth=_env_int("AQI_RF_MAX_DEPTH", 7),
+        seed=42,
+    )
+
+
+def _gbt_regressor() -> GBTRegressor:
+    return GBTRegressor(
+        featuresCol="features",
+        labelCol="label",
+        maxIter=_env_int("AQI_GBT_MAX_ITER", 40),
+        maxDepth=_env_int("AQI_GBT_MAX_DEPTH", 5),
+        stepSize=_env_float("AQI_GBT_STEP_SIZE", 0.08),
+        seed=42,
+    )
+
+
 MODEL_BUILDERS = {
-    "random_forest": lambda: RandomForestRegressor(
-        featuresCol="features",
-        labelCol="label",
-        numTrees=24,
-        maxDepth=7,
-        seed=42,
-    ),
-    "gbt": lambda: GBTRegressor(
-        featuresCol="features",
-        labelCol="label",
-        maxIter=40,
-        maxDepth=5,
-        stepSize=0.08,
-        seed=42,
-    ),
+    "random_forest": _random_forest_regressor,
+    "gbt": _gbt_regressor,
 }
 
 

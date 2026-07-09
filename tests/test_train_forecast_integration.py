@@ -10,7 +10,7 @@ from pyspark.sql.types import DoubleType, LongType, StringType, StructField, Str
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from scripts.train_forecast_spark import build_forecast, feature_frame, train_models
+from scripts.train_forecast_spark import MODEL_BUILDERS, build_forecast, feature_frame, train_models
 
 
 GRID_LAT = 10.7769
@@ -94,3 +94,20 @@ def test_train_and_forecast_round_trip_uses_horizon_conditioned_model(spark_sess
     for r in rows:
         expected_epoch = latest_hour_epoch + int(r.horizon_hour) * 3600
         assert r.forecast_epoch == expected_epoch
+
+
+def test_model_builders_honor_runtime_size_overrides(monkeypatch):
+    monkeypatch.setenv("AQI_RF_NUM_TREES", "3")
+    monkeypatch.setenv("AQI_RF_MAX_DEPTH", "4")
+    monkeypatch.setenv("AQI_GBT_MAX_ITER", "5")
+    monkeypatch.setenv("AQI_GBT_MAX_DEPTH", "2")
+    monkeypatch.setenv("AQI_GBT_STEP_SIZE", "0.2")
+
+    rf = MODEL_BUILDERS["random_forest"]()
+    gbt = MODEL_BUILDERS["gbt"]()
+
+    assert rf.getNumTrees() == 3
+    assert rf.getMaxDepth() == 4
+    assert gbt.getMaxIter() == 5
+    assert gbt.getMaxDepth() == 2
+    assert gbt.getStepSize() == 0.2

@@ -11,12 +11,12 @@ from app import main as app_main
 from src.io import write_measurements_parquet
 
 
-def _settings(measurements_path, predictions_path, metrics_path):
+def _settings(measurements_path, predictions_path, metrics_path, storage_path=None):
     return SimpleNamespace(
         measurements_path=str(measurements_path),
         predictions_path=str(predictions_path),
         metrics_path=str(metrics_path),
-        storage_path=lambda value: value,
+        storage_path=storage_path or (lambda value: value),
     )
 
 
@@ -149,3 +149,59 @@ def test_forecast_hotspots_metrics_and_health_apis(tmp_path, monkeypatch):
     assert health["status"] == "degraded"
     assert health["artifacts"]["forecast"]["exists"] is True
     assert health["artifacts"]["measurements"]["exists"] is False
+
+
+def test_current_and_health_support_hdfs_measurements(monkeypatch, tmp_path):
+    hdfs_base = "hdfs://localhost:9000/aqi-hcmc"
+    measurement_rel = "data/parquet/measurements"
+    measurement_path = f"{hdfs_base}/{measurement_rel}"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    forecast_path = tmp_path / "forecast.json"
+    metrics_path = tmp_path / "metrics.json"
+    forecast_path.write_text("[]", encoding="utf-8")
+    metrics_path.write_text('{"metrics": []}', encoding="utf-8")
+
+    monkeypatch.setattr(
+        app_main,
+        "settings",
+        _settings(
+            measurement_rel,
+            forecast_path,
+            metrics_path,
+            storage_path=lambda value: f"{hdfs_base}/{value.strip('/')}",
+        ),
+    )
+    monkeypatch.setattr(
+        app_main,
+        "_read_measurements_frame",
+        lambda path: pd.DataFrame(
+            [
+                _measurement("pm25", 18.0, now - timedelta(hours=1)),
+                _measurement("pm10", 38.0, now - timedelta(hours=1), sensor_id=2),
+            ]
+        )
+        if path == measurement_path
+        else pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        app_main,
+        "_hdfs_artifact_status",
+        lambda path: {
+            "path": path,
+            "exists": path == measurement_path,
+            "check_supported": True,
+            "updated_at": "2026-07-09T00:00:00+00:00",
+        },
+    )
+
+    client = TestClient(app_main.app)
+    current = client.get("/api/current").json()
+    assert current["artifact"]["path"] == measurement_path
+    assert current["artifact"]["exists"] is True
+    assert current["count"] == 1
+    assert current["points"][0]["values"] == {"pm25": 18.0, "pm10": 38.0}
+
+    health = client.get("/api/health").json()
+    assert health["status"] == "ok"
+    assert health["artifacts"]["measurements"]["check_supported"] is True
+    assert health["artifacts"]["measurements"]["exists"] is True

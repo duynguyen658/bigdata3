@@ -55,6 +55,18 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _spark_session():
+    from pyspark.sql import SparkSession
+
+    return (
+        SparkSession.getActiveSession()
+        or SparkSession.builder.appName("hcmc-aqi-api")
+        .master("local[2]")
+        .config("spark.sql.session.timeZone", "UTC")
+        .getOrCreate()
+    )
+
+
 def _freshness(age_hours: float | None) -> str:
     if age_hours is None:
         return "missing"
@@ -65,14 +77,36 @@ def _freshness(age_hours: float | None) -> str:
     return "stale"
 
 
-def _artifact_status(path: str) -> dict:
-    if path.startswith("hdfs://"):
+def _hdfs_artifact_status(path: str) -> dict:
+    try:
+        spark = _spark_session()
+        hadoop_conf = spark._jsc.hadoopConfiguration()
+        uri = spark._jvm.java.net.URI.create(path)
+        fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
+        hdfs_path = spark._jvm.org.apache.hadoop.fs.Path(path)
+        exists = bool(fs.exists(hdfs_path))
+        updated_at = None
+        if exists:
+            modified_ms = fs.getFileStatus(hdfs_path).getModificationTime()
+            updated_at = _iso(datetime.fromtimestamp(modified_ms / 1000, tz=timezone.utc))
         return {
             "path": path,
-            "exists": None,
-            "check_supported": False,
-            "note": "HDFS path is not checked by the local FastAPI process.",
+            "exists": exists,
+            "check_supported": True,
+            "updated_at": updated_at,
         }
+    except Exception as exc:
+        return {
+            "path": path,
+            "exists": False,
+            "check_supported": True,
+            "error": str(exc),
+        }
+
+
+def _artifact_status(path: str) -> dict:
+    if path.startswith("hdfs://"):
+        return _hdfs_artifact_status(path)
     target = Path(path)
     return {
         "path": path,
@@ -82,13 +116,19 @@ def _artifact_status(path: str) -> dict:
     }
 
 
-def _current_points_from_measurements(path: str) -> list[dict]:
-    if path.startswith("hdfs://") or not Path(path).exists():
-        return []
+def _read_measurements_frame(path: str) -> pd.DataFrame:
+    if path.startswith("hdfs://"):
+        return _spark_session().read.parquet(path).toPandas()
+    if not Path(path).exists():
+        return pd.DataFrame()
+    return pd.read_parquet(path)
 
-    frame = pd.read_parquet(path)
+
+def _current_points_from_measurements(path: str) -> list[dict]:
+    frame = _read_measurements_frame(path)
     if frame.empty:
         return []
+
 
     frame = frame.copy()
     frame["parameter"] = frame["parameter"].astype(str).str.lower().str.replace(".", "", regex=False)

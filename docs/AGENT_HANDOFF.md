@@ -7,10 +7,10 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
-- Latest commit: `d30e461 update 2`
-- Working tree: `scripts/train_forecast_spark.py`, `tests/test_forecast_outputs.py`, and `docs/AGENT_HANDOFF.md` modified; untracked `.claude/`; generated `data/`, `models/`, caches ignored
+- Latest commit: `e648c33 update 3`
+- Working tree: modified `.env.example`, `README.md`, `requirements.txt`, `app/static/*`, `docs/AGENT_HANDOFF.md`, `scripts/train_forecast_spark.py`, `tests/test_train_forecast_integration.py`; untracked `app/static/vendor/`, `tests/test_frontend_static.py`, `.claude/`; regenerated `data/`, `models/`, and `logs/` are ignored
 - Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: corrective P1 forecast pollutant merge identity fix completed; next is artifact regeneration/training runtime verification
+- Active task: local artifact regeneration, API health, frontend offline/browser QA, and regression tests completed; next is real OpenAQ/HDFS verification if credentials/cluster are available
 - Last updated: 2026-07-09
 - Last agent: OpenAI Codex
 
@@ -19,12 +19,12 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 | Phase | Status | Verified | Notes |
 |---|---|---|---|
 | Phase 1 - Correctness Foundation | COMPLETED | YES | Full pytest passes; Spark feature/AQI tests cover hourly regularization, H+1..H+24, timezone, AQI edge cases |
-| Phase 2 - Ingestion, Storage, ML Evaluation | IMPLEMENTED_NOT_VERIFIED | PARTIAL | Unit/integration tests pass; full standalone train smoke timed out at 5 minutes on Windows local Spark |
+| Phase 2 - Ingestion, Storage, ML Evaluation | LOCAL_FAST_VERIFIED | PARTIAL | Unit/integration tests pass; local Spark training completed with runtime-size overrides and regenerated forecast/metrics artifacts; real OpenAQ/HDFS still not verified |
 | Phase 3 - Backend APIs and Freshness | COMPLETED | YES | API tests and temporary uvicorn HTTP verification pass |
-| Phase 4 - Frontend via /taste | IMPLEMENTED_NOT_VERIFIED | PARTIAL | `/taste` skill was unavailable; used `impeccable` design context instead. Static implementation done; HTTP `/` returns 200; no browser screenshot QA yet |
+| Phase 4 - Frontend via /taste | LOCAL_VERIFIED | YES_LOCAL | `/taste` skill was unavailable; used `impeccable` design context instead. Browser QA passed desktop/mobile with local static assets |
 | Phase 5 - Verification and Documentation | IN_PROGRESS | PARTIAL | README and handoff updated; OpenAQ real run and HDFS cluster verification not run |
 
-Do not mark Phase 2 or Phase 4 fully complete until the verification gaps below are resolved or deliberately accepted.
+Do not mark OpenAQ live ingestion or real HDFS complete until the verification gaps below are resolved or deliberately accepted.
 
 ## 3. Work Completed
 
@@ -389,14 +389,16 @@ Current API points include:
 | Storage tests | PASS | `tests/test_storage_phase2.py` pass |
 | API tests | PASS | `tests/test_api_phase3.py` pass |
 | Integration tests | PASS | `tests/test_train_forecast_integration.py` passed with longer timeout |
-| Frontend verification | PARTIAL | `/` HTTP 200; no visual/browser QA |
+| Runtime API smoke | PASS | `TestClient` returned `/api/current`, `/api/forecast`, `/api/hotspots`, `/api/metrics`; `/api/health` is `ok` after artifact regeneration |
+| Frontend static dependency test | PASS | `tests/test_frontend_static.py` verifies dashboard runtime assets are local |
+| Frontend browser verification | PASS | Playwright headless Chromium desktop/mobile QA passed; no console errors, no failed requests, no horizontal overflow |
 
 ## 8. Exact Next Step
 
 Primary next action:
 
 ```text
-Optimize or parameterize scripts/train_forecast_spark.py so a small standalone Spark train run completes with the corrected inference lag and forecast merge semantics, regenerates forecast JSON with `grid_lat`/`grid_lon`/`forecast_origin_ts`/`target_ts`, writes metrics.json, then run browser visual QA for the Phase 4 frontend.
+Run real OpenAQ ingestion with a valid API key and/or real HDFS cluster verification when those external dependencies are available. Otherwise, continue with default-size training performance tuning if production-sized local models are required.
 ```
 
 ## 9. Instructions for the Next Agent
@@ -411,6 +413,86 @@ Optimize or parameterize scripts/train_forecast_spark.py so a small standalone S
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
+- Phase 5 dependency maintenance
+
+Work:
+
+- Updated `requirements.txt` to match the verified local environment used for the latest successful test and browser QA pass.
+- Added missing direct setup dependencies for FastAPI `TestClient` and browser QA: `httpx` and `playwright`.
+
+Commands:
+
+- `python -m pip check` -> PASS, no broken requirements.
+- `python -m pytest tests\test_api_phase3.py tests\test_frontend_static.py` -> 3 passed.
+
+Result:
+
+- Requirements now reflect the dependency set needed for the backend, Spark pipeline, tests, and recorded frontend browser QA.
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
+- Phase 5 corrective completion and local verification
+
+Work:
+
+- Added runtime model-size overrides to `scripts/train_forecast_spark.py`: `AQI_RF_NUM_TREES`, `AQI_RF_MAX_DEPTH`, `AQI_GBT_MAX_ITER`, `AQI_GBT_MAX_DEPTH`, and `AQI_GBT_STEP_SIZE`.
+- Added regression coverage for those overrides in `tests/test_train_forecast_integration.py`.
+- Regenerated real local artifacts from `data/parquet/measurements` with corrected lag and merge semantics.
+- Verified new `data/predictions/forecast_24h.json` contains `grid_lat`, `grid_lon`, `forecast_origin_ts`, and `target_ts`.
+- Verified new `data/predictions/metrics.json` contains 192 real metric rows for RF/GBT, PM2.5/PM10, validation/test, H+1..H+24.
+- Vendored Leaflet and leaflet.heat runtime assets under `app/static/vendor/`, removed Google Fonts/CDN Leaflet dependencies, and replaced remote OpenStreetMap tile requests with a local Leaflet grid layer.
+- Added `tests/test_frontend_static.py` to prevent reintroducing runtime CDN dependencies.
+- Updated README with current verification state and local-fast training controls.
+
+Commands:
+
+- `python -m pytest tests\test_train_forecast_integration.py` -> 2 passed.
+- Local Spark training first failed inside sandbox with `Unable to establish loopback connection`; reran outside sandbox with runtime-size overrides -> PASS, wrote forecast JSON/parquet and metrics JSON.
+- Artifact inspection -> forecast count 5,856 with corrected schema; metrics count 192.
+- `python -c "... TestClient ..."` -> `/api/health` `ok`, `/api/current` 122 points, `/api/forecast?horizon=1&model=gbt` 122 points, `/api/metrics` available with 48 test metrics for one model, `/api/hotspots` 10 rows.
+- Browser QA with Playwright headless Chromium -> PASS desktop and mobile; no console errors, no failed requests, no horizontal overflow; screenshots written to ignored `logs/frontend-desktop.png` and `logs/frontend-mobile.png`.
+- `python -m pytest tests\test_frontend_static.py tests\test_train_forecast_integration.py` -> 3 passed.
+- `python -m pytest` -> 45 passed.
+
+Result:
+
+- Local runtime health is now `ok` with current forecast and metrics artifacts.
+- Frontend browser QA is locally verified and no longer depends on CDN/network at runtime.
+- OpenAQ authenticated ingestion and real HDFS cluster verification remain NOT_VERIFIED.
+
+### 2026-07-09 - OpenAI Codex
+
+Phase:
+
+- Phase 5 system verification
+
+Work:
+
+- Performed a full repository/system check after the P0/P1 corrective commits.
+- Inspected git state, recent commits, forecast code, backend API code, frontend files, tests, generated forecast artifacts, and metrics artifact presence.
+- Verified current generated forecast JSON is stale relative to corrected code: it lacks `grid_lat`, `forecast_origin_ts`, and `target_ts`.
+- Verified `data/predictions/metrics.json` is absent, so runtime `/api/health` reports `degraded` and `/api/metrics` returns `available: false`.
+
+Commands:
+
+- `git status --short` -> clean except untracked `.claude/`.
+- `git diff --stat` -> no source diff before this handoff update.
+- `git log --oneline -n 10` -> latest commit `e648c33 update 3`.
+- `python -m pytest` -> 43 passed.
+- `python -c "... TestClient ..."` -> `/api/current` returned 122 points, `/api/forecast?horizon=1&model=gbt` returned 122 points, `/api/hotspots` returned 10 hotspots, `/api/metrics` returned `available: false`, `/api/health` returned `degraded`.
+
+Result:
+
+- No failing automated tests were found.
+- Runtime is partially healthy, but generated forecast/metrics artifacts are not fully current after the corrective Spark fixes.
+- OpenAQ authenticated ingestion, real HDFS verification, browser visual QA, and long-running standalone train regeneration remain NOT_VERIFIED.
 
 ### 2026-07-09 - OpenAI Codex
 

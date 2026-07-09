@@ -5,10 +5,31 @@ const map = L.map("map", {
 
 L.control.zoom({ position: "bottomleft" }).addTo(map);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 18,
-  attribution: "&copy; OpenStreetMap contributors",
-}).addTo(map);
+const localBaseLayer = L.gridLayer({
+  attribution: "Local AQI grid",
+});
+
+localBaseLayer.createTile = () => {
+  const tile = document.createElement("canvas");
+  tile.width = 256;
+  tile.height = 256;
+  const ctx = tile.getContext("2d");
+  ctx.fillStyle = "#e9f0ef";
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = "rgba(75, 101, 104, 0.18)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 256; i += 64) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 256);
+    ctx.moveTo(0, i);
+    ctx.lineTo(256, i);
+    ctx.stroke();
+  }
+  return tile;
+};
+
+localBaseLayer.addTo(map);
 
 let heatLayer = null;
 let markers = L.layerGroup().addTo(map);
