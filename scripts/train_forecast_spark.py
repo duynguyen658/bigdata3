@@ -394,7 +394,8 @@ def write_outputs(forecast, json_path: str, parquet_path: str) -> None:
     payload = []
     for item in by_cell_hour.values():
         scores = {param: pollutant_aqi(param, value) for param, value in item["values"].items()}
-        aqi = max(score for score in scores.values() if score is not None) if scores else None
+        valid_scores = [score for score in scores.values() if score is not None]
+        aqi = max(valid_scores) if valid_scores else None
         item["aqi"] = aqi
         item["category"] = aqi_category(aqi)
         item.pop("_coordinate_count", None)

@@ -44,3 +44,34 @@ def test_write_outputs_merges_pollutants_by_grid_identity_not_display_coordinate
     assert round(point["longitude"], 5) == 106.7042
     assert point["forecast_origin_ts"] == "2026-07-08T00:00:00"
     assert point["target_ts"] == "2026-07-08T01:00:00"
+
+
+def test_write_outputs_handles_rows_without_supported_aqi_scores(spark_session, tmp_path):
+    origin = datetime(2026, 7, 8, 0, 0, 0)
+    target = datetime(2026, 7, 8, 1, 0, 0)
+    forecast = (
+        spark_session.range(0, 1)
+        .withColumn("model", F.lit("random_forest"))
+        .withColumn("grid_lat", F.lit(10.78).cast("double"))
+        .withColumn("grid_lon", F.lit(106.70).cast("double"))
+        .withColumn("latitude", F.lit(10.77691).cast("double"))
+        .withColumn("longitude", F.lit(106.70091).cast("double"))
+        .withColumn("parameter", F.lit("o3"))
+        .withColumn("sensor_count", F.lit(2).cast("int"))
+        .withColumn("forecast_origin_ts", F.from_unixtime(F.lit(int(origin.timestamp()))).cast("timestamp"))
+        .withColumn("target_ts", F.from_unixtime(F.lit(int(target.timestamp()))).cast("timestamp"))
+        .withColumn("forecast_ts", F.col("target_ts"))
+        .withColumn("horizon_hour", F.lit(1).cast("int"))
+        .withColumn("predicted_value", F.lit(52.1).cast("double"))
+        .drop("id")
+    )
+
+    json_path = tmp_path / "forecast.json"
+    parquet_path = tmp_path / "forecast_parquet"
+    write_outputs(forecast, str(json_path), str(parquet_path))
+
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert len(payload) == 1
+    assert payload[0]["values"] == {"o3": 52.1}
+    assert payload[0]["aqi"] is None
+    assert payload[0]["category"] == "unknown"

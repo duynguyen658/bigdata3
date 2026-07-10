@@ -7,12 +7,12 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
-- Latest commit: `e7ad45a update readme`
-- Working tree: modified `src/io.py`, `tests/test_storage_phase2.py`, and `docs/AGENT_HANDOFF.md`; untracked `.claude/`; regenerated `data/`, `models`, and `logs/` are ignored
+- Latest commit: `bea339fe1ee6d8f8c4f0832be5a09bd55269ce75 final 3`
+- Working tree: modified `app/main.py`, `scripts/train_forecast_spark.py`, `src/aqi.py`, `src/io.py`, `tests/test_api_phase3.py`, `tests/test_aqi.py`, `tests/test_forecast_outputs.py`, `tests/test_storage_phase2.py`, and `docs/AGENT_HANDOFF.md`; untracked `.claude/`; regenerated `data/`, `models`, and `logs/` are ignored
 - Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: focused corrective hardening for HDFS append error semantics in measurement storage
-- Last updated: 2026-07-09
-- Last agent: OpenAI Codex
+- Active task: corrective hardening pass for measurement normalization, AQI non-finite inputs, forecast AQI output robustness, and API behavior when measurement storage is unavailable
+- Last updated: 2026-07-10
+- Last agent: Agent: Codex
 
 ## 2. Phase Status
 
@@ -278,10 +278,15 @@ Artifact note:
 
 ### Task: Phase 5 verification and final polish
 
-- Current state: P0 train/inference lag mismatch, P1 forecast pollutant merge identity, and P1 HDFS append error semantics defects are fixed; full pytest passes with 49 tests.
-- Files involved in the latest corrective pass: `src/io.py`, `tests/test_storage_phase2.py`, `docs/AGENT_HANDOFF.md`.
+- Current state: latest corrective hardening pass is implemented; full pytest passes with 53 tests.
+- Files involved in the latest corrective pass: `app/main.py`, `scripts/train_forecast_spark.py`, `src/aqi.py`, `src/io.py`, `tests/test_api_phase3.py`, `tests/test_aqi.py`, `tests/test_forecast_outputs.py`, `tests/test_storage_phase2.py`, `docs/AGENT_HANDOFF.md`.
+- Verified fixes in this pass:
+  - Measurement normalization now drops missing/blank placeholder pollutant parameters instead of storing literal `none`/`nan` partitions.
+  - AQI calculation now returns `None` for non-finite concentrations instead of returning hazardous AQI 500 for `NaN` or raising on `Infinity`.
+  - Forecast JSON output now handles rows with no supported AQI scores by writing `aqi: null` and `category: unknown` instead of crashing.
+  - `/api/current` and current-mode `/api/hotspots` now return empty degraded payloads with a read error when measurement storage is unavailable instead of raising a 500.
 - Blocker: full OpenAQ measurement ingestion into the current HDFS dataset has not been run because it would mutate the verified dataset.
-- Next technical action: optionally run a bounded real OpenAQ measurement ingestion into HDFS if dataset mutation is desired; otherwise continue with default-size training performance tuning if production-sized local models are required.
+- Next technical action: review and commit the hardening diff; optionally run a bounded real OpenAQ measurement ingestion into HDFS if dataset mutation is desired.
 
 ## 5. Data and Schema State
 
@@ -413,14 +418,14 @@ Current API points include:
 
 | Test Area | Status | Evidence |
 |---|---|---|
-| AQI unit tests | PASS | `tests/test_aqi.py` in full pytest |
+| AQI unit tests | PASS | `tests/test_aqi.py` in full pytest, including non-finite concentration handling |
 | Spark feature tests | PASS | `tests/test_spark_features.py` passed standalone with 17 tests and in full pytest |
 | Forecast output tests | PASS | `tests/test_forecast_outputs.py` covers PM2.5/PM10 merge identity |
 | Horizon semantics tests | PASS | H+1..H+24 tests pass |
-| Storage tests | PASS | `tests/test_storage_phase2.py` pass |
-| API tests | PASS | `tests/test_api_phase3.py` pass |
+| Storage tests | PASS | `tests/test_storage_phase2.py` pass, including missing parameter normalization |
+| API tests | PASS | `tests/test_api_phase3.py` pass, including measurement-read failure degradation |
 | Integration tests | PASS | `tests/test_train_forecast_integration.py` passed with longer timeout |
-| Runtime API smoke | PASS | `TestClient` returned `/api/current`, `/api/forecast`, `/api/hotspots`, `/api/metrics`; `/api/health` is `ok` after artifact regeneration |
+| Runtime API smoke | PASS | After local HDFS restart, `TestClient` returned `/api/health` `ok`, `/api/current` 19, `/api/forecast` 19, current hotspots 3, metrics 48 |
 | Frontend static dependency test | PASS | `tests/test_frontend_static.py` verifies dashboard runtime assets are local |
 | Frontend browser verification | PASS | Playwright headless Chromium desktop/mobile QA passed; no console errors, no failed requests, no horizontal overflow |
 
@@ -429,7 +434,7 @@ Current API points include:
 Primary next action:
 
 ```text
-Optionally run a bounded real OpenAQ measurement ingestion into HDFS if mutating the current HDFS measurement dataset is desired. Otherwise continue with default-size training performance tuning if production-sized local models are required.
+Review and commit the hardening diff; optionally run a bounded real OpenAQ measurement ingestion into HDFS if dataset mutation is desired.
 ```
 
 ## 9. Instructions for the Next Agent
@@ -444,6 +449,113 @@ Optionally run a bounded real OpenAQ measurement ingestion into HDFS if mutating
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-10 - Agent: Codex
+
+Phase:
+
+- Phase 5 corrective hardening
+
+Work:
+
+- Performed mandatory startup inspection from actual repository state.
+- Verified real HEAD is `bea339fe1ee6d8f8c4f0832be5a09bd55269ce75 final 3`, not the prompt's stale latest-known `final 2`.
+- Confirmed and fixed measurement normalization defect: `parameter=None` was normalized to literal `none` and persisted instead of being dropped as a missing required field.
+- Confirmed and fixed AQI non-finite input defect: `NaN` returned AQI 500 and positive infinity raised `decimal.InvalidOperation`; non-finite concentrations now return `None`.
+- Hardened forecast artifact writing so unsupported/no-score pollutant rows produce `aqi: null` and `category: unknown` instead of a `max()` crash.
+- Confirmed configured HDFS-backed `/api/current` failed when `localhost:9000` was unavailable; hardened `/api/current` and current-mode `/api/hotspots` to return empty degraded payloads with read-error metadata instead of 500.
+- Inspected local forecast and metrics artifacts: forecast JSON exists with 912 rows and corrected schema keys; metrics JSON exists with 192 rows.
+
+Files changed:
+
+- `app/main.py`
+- `scripts/train_forecast_spark.py`
+- `src/aqi.py`
+- `src/io.py`
+- `tests/test_api_phase3.py`
+- `tests/test_aqi.py`
+- `tests/test_forecast_outputs.py`
+- `tests/test_storage_phase2.py`
+- `docs/AGENT_HANDOFF.md`
+
+Commands:
+
+- `Get-Content -Raw AGENTS.md`
+- `Get-Content -Raw CLAUDE.md`
+- `Get-Content -Raw docs\IMPLEMENTATION_PLAN.md`
+- `Get-Content -Raw docs\AGENT_HANDOFF.md`
+- `Get-Content -Raw docs\ARCHITECTURE.md`
+- `Get-Content -Raw README.md`
+- `Get-Content -Raw .gitignore`
+- `Get-Content -Raw .env.example`
+- `Get-Content -Raw requirements.txt`
+- `Get-ChildItem -Force .agents`
+- `Get-ChildItem -Recurse -Force .agents\skills`
+- `git status --short`
+- `git branch --show-current`
+- `git log --oneline -n 20`
+- `git rev-parse HEAD`
+- `git show -s --format="%H%n%s" HEAD`
+- `git diff`
+- `git diff --stat`
+- `git ls-files AGENTS.md CLAUDE.md`
+- `git check-ignore -v AGENTS.md` -> exit 1, no ignore match; warning about inaccessible user git ignore
+- `git check-ignore -v CLAUDE.md` -> exit 1, no ignore match; warning about inaccessible user git ignore
+- `rg --files`
+- Source/test inspection via `Get-Content -Raw` for `src/`, `scripts/`, `app/`, and `tests/`
+- Repro: `parameter=None` normalized to `none`
+- Repro: `pollutant_aqi("pm25", nan)` returned 500; `pollutant_aqi("pm25", inf)` raised `InvalidOperation`
+- `python -m pytest tests\test_storage_phase2.py tests\test_api_phase3.py tests\test_openaq_client.py` -> 9 passed before edits
+- `python -m pytest tests\test_storage_phase2.py` -> 5 passed after storage fix
+- `python -m pytest tests\test_aqi.py tests\test_storage_phase2.py` -> 25 passed
+- `python -m pytest tests\test_forecast_outputs.py` -> 2 passed
+- `python -m pytest tests\test_spark_features.py tests\test_api_phase3.py tests\test_openaq_client.py tests\test_frontend_static.py` -> 23 passed
+- `python -m pytest tests\test_train_forecast_integration.py` -> 2 passed
+- `python -m pytest` -> 52 passed before API storage-offline hardening
+- `python -m py_compile src\aqi.py src\io.py src\config.py src\openaq_client.py scripts\ingest_openaq.py scripts\generate_sample_data.py scripts\train_forecast_spark.py app\main.py` -> passed
+- Artifact inspection command -> forecast exists, 912 rows, required corrected keys present, horizons 1..24, models `gbt`/`random_forest`; metrics exists, 192 rows
+- Configured API runtime smoke inside sandbox -> failed before API hardening with Spark loopback error while reading HDFS-backed measurements
+- Configured API runtime smoke outside sandbox before API hardening -> failed before API hardening with `localhost:9000` HDFS connection refused and `/api/current` traceback
+- `python -m pytest tests\test_api_phase3.py` -> 4 passed after API hardening
+- Configured API runtime smoke after API hardening -> PASS degraded behavior: health `degraded`, measurement exists `False`, current count `0` with read error, forecast count `19`, current hotspots `0` with read error, metrics available `True`, metrics count `48`
+- `python -m pytest` -> 53 passed
+- `git diff --stat`
+- `git diff -- ...`
+- `git status --short`
+- `git branch --show-current`
+- `git show -s --format="%H%n%s" HEAD`
+
+Result:
+
+- Full automated suite passes: 53 tests.
+- Runtime API no longer crashes when configured HDFS measurement storage is offline.
+- Real HDFS availability/read/write is NOT_VERIFIED in this pass because `localhost:9000` refused connections.
+- Full OpenAQ measurement ingestion was NOT_RUN.
+- Browser visual QA was NOT_RUN in this pass; previous recorded browser QA remains historical evidence only.
+
+### 2026-07-10 - Agent: Codex
+
+Phase:
+
+- Phase 5 HDFS runtime recheck
+
+Work:
+
+- User restarted local HDFS and requested rerunning the code.
+- Rechecked HDFS measurement dataset and FastAPI runtime smoke against current `.env`.
+- Confirmed direct Spark HDFS read works again.
+- Confirmed FastAPI HDFS-backed runtime is healthy outside sandbox.
+
+Commands:
+
+- `python -c "from pyspark.sql import SparkSession; ... spark.read.parquet('hdfs://localhost:9000/aqi-hcmc/data/parquet/measurements') ..."` -> PASS, 6,720 rows, `pm10=3,360`, `pm25=3,360`.
+- Configured API runtime smoke inside sandbox -> PASS_DEGRADED payload but Spark emitted Windows loopback errors while starting the app SparkSession; treated as sandbox/runtime isolation artifact because direct HDFS read and outside-sandbox smoke passed.
+- Configured API runtime smoke outside sandbox -> PASS, `/api/health` `ok`, HDFS measurements exists `True`, `/api/current` 19 points, `/api/forecast?horizon=1&model=random_forest` 19 points, current hotspots 3, metrics available `True` with 48 rows.
+
+Result:
+
+- HDFS-backed API runtime is verified healthy again outside sandbox after HDFS restart.
+- Full OpenAQ measurement ingestion remains NOT_RUN.
 
 ### 2026-07-09 - OpenAI Codex
 

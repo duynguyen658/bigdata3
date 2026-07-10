@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import math
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -81,6 +82,12 @@ def test_pm25_and_pm10_key_variants_still_supported():
 
 def test_none_concentration_returns_none():
     assert pollutant_aqi("pm25", None) is None
+
+
+def test_non_finite_concentration_returns_none():
+    assert pollutant_aqi("pm25", math.nan) is None
+    assert pollutant_aqi("pm25", math.inf) is None
+    assert pollutant_aqi("pm10", -math.inf) is None
 
 
 def test_negative_concentration_clamped_to_zero():

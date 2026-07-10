@@ -205,3 +205,27 @@ def test_current_and_health_support_hdfs_measurements(monkeypatch, tmp_path):
     assert health["status"] == "ok"
     assert health["artifacts"]["measurements"]["check_supported"] is True
     assert health["artifacts"]["measurements"]["exists"] is True
+
+
+def test_current_and_hotspots_return_empty_payload_when_measurement_read_fails(monkeypatch, tmp_path):
+    measurements_path = tmp_path / "measurements"
+    forecast_path = tmp_path / "forecast.json"
+    metrics_path = tmp_path / "metrics.json"
+    forecast_path.write_text("[]", encoding="utf-8")
+    metrics_path.write_text('{"metrics": []}', encoding="utf-8")
+
+    monkeypatch.setattr(app_main, "settings", _settings(measurements_path, forecast_path, metrics_path))
+    monkeypatch.setattr(app_main, "_read_measurements_frame", lambda path: (_ for _ in ()).throw(RuntimeError("measurement store offline")))
+
+    client = TestClient(app_main.app)
+    current = client.get("/api/current").json()
+    assert current["mode"] == "current"
+    assert current["count"] == 0
+    assert current["points"] == []
+    assert "measurement store offline" in current["artifact"]["read_error"]
+
+    hotspots = client.get("/api/hotspots?mode=current").json()
+    assert hotspots["mode"] == "current"
+    assert hotspots["count"] == 0
+    assert hotspots["hotspots"] == []
+    assert "measurement store offline" in hotspots["read_error"]

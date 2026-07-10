@@ -77,6 +77,22 @@ def test_write_measurements_overwrite_replaces_existing_dataset(tmp_path):
     assert rows.iloc[0]["parameter"] == "pm10"
 
 
+def test_write_measurements_drops_rows_with_missing_parameter(tmp_path):
+    path = tmp_path / "measurements"
+    missing_none = _measurement(1, 0, "pm25", 10.0)
+    missing_none["parameter"] = None
+    missing_blank = _measurement(2, 0, "pm10", 20.0)
+    missing_blank["parameter"] = " "
+    valid = _measurement(3, 0, "PM2.5", 30.0)
+
+    assert write_measurements_parquet(pd.DataFrame([missing_none, missing_blank, valid]), str(path), mode="overwrite") == 1
+
+    rows = pd.read_parquet(path)
+    assert len(rows) == 1
+    assert rows.iloc[0]["sensor_id"] == 3
+    assert rows.iloc[0]["parameter"] == "pm25"
+
+
 def test_spark_append_propagates_existing_dataset_read_errors(monkeypatch):
     class FailingReader:
         def parquet(self, path):

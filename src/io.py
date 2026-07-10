@@ -31,7 +31,8 @@ def _normalize_measurements(df: pd.DataFrame) -> pd.DataFrame:
         if column not in frame.columns:
             frame[column] = None
     frame = frame[MEASUREMENT_COLUMNS]
-    frame["parameter"] = frame["parameter"].astype(str).str.lower().str.replace(".", "", regex=False)
+    parameter = frame["parameter"].astype("string").str.strip().str.lower().str.replace(".", "", regex=False)
+    frame["parameter"] = parameter.mask(parameter.isin(["", "nan", "none", "null"]))
     utc = pd.to_datetime(frame["datetime_utc"], utc=True, errors="coerce")
     frame["datetime_utc"] = utc.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
     frame["date"] = utc.dt.strftime("%Y-%m-%d")

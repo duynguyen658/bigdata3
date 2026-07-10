@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
+import math
 
 
 @dataclass(frozen=True)
@@ -58,13 +59,16 @@ def _truncate(value: float, decimals: int) -> float:
 def pollutant_aqi(parameter: str, concentration: float | None) -> int | None:
     if concentration is None:
         return None
+    concentration_value = float(concentration)
+    if not math.isfinite(concentration_value):
+        return None
     parameter_key = parameter.lower().replace(".", "").replace("_", "")
     if parameter_key in {"pm25", "pm25um"}:
         breakpoints = PM25_BREAKPOINTS
-        value = _truncate(max(float(concentration), 0.0), 1)
+        value = _truncate(max(concentration_value, 0.0), 1)
     elif parameter_key in {"pm10", "pm10um"}:
         breakpoints = PM10_BREAKPOINTS
-        value = _truncate(max(float(concentration), 0.0), 0)
+        value = _truncate(max(concentration_value, 0.0), 0)
     else:
         # Unsupported pollutant: do not silently fall back to PM10 breakpoints.
         return None

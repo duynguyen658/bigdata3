@@ -129,7 +129,6 @@ def _current_points_from_measurements(path: str) -> list[dict]:
     if frame.empty:
         return []
 
-
     frame = frame.copy()
     frame["parameter"] = frame["parameter"].astype(str).str.lower().str.replace(".", "", regex=False)
     frame["value"] = pd.to_numeric(frame["value"], errors="coerce")
@@ -172,6 +171,13 @@ def _current_points_from_measurements(path: str) -> list[dict]:
     return sorted(points, key=lambda item: item.get("aqi") or 0, reverse=True)
 
 
+def _safe_current_points(path: str) -> tuple[list[dict], str | None]:
+    try:
+        return _current_points_from_measurements(path), None
+    except Exception as exc:
+        return [], str(exc)
+
+
 def _forecast_payload(horizon: int, model: str) -> dict:
     model = model if model in AVAILABLE_MODELS else "random_forest"
     data = read_predictions_json(settings.predictions_path)
@@ -209,14 +215,17 @@ def models() -> dict:
 @app.get("/api/current")
 def current() -> dict:
     path = settings.storage_path(settings.measurements_path)
-    points = _current_points_from_measurements(path)
+    points, read_error = _safe_current_points(path)
     observations = [_parse_utc(item.get("observation_ts")) for item in points]
+    artifact = _artifact_status(path)
+    if read_error:
+        artifact = {**artifact, "read_error": read_error}
     return {
         "city": "Ho Chi Minh City",
         "mode": "current",
         "generated_at": _iso(_utc_now()),
         "data_as_of": _iso(max((value for value in observations if value is not None), default=None)),
-        "artifact": _artifact_status(path),
+        "artifact": artifact,
         "count": len(points),
         "points": points,
     }
@@ -235,9 +244,12 @@ def hotspots(
     mode: str = Query("forecast", pattern="^(current|forecast)$"),
 ) -> dict:
     if mode == "current":
-        points = _current_points_from_measurements(settings.storage_path(settings.measurements_path))
+        points, read_error = _safe_current_points(settings.storage_path(settings.measurements_path))
         points.sort(key=lambda item: item.get("aqi") or 0, reverse=True)
-        return {"mode": "current", "limit": limit, "count": len(points[:limit]), "hotspots": points[:limit]}
+        payload = {"mode": "current", "limit": limit, "count": len(points[:limit]), "hotspots": points[:limit]}
+        if read_error:
+            payload["read_error"] = read_error
+        return payload
 
     points = _forecast_payload(horizon, model)["points"]
     points.sort(key=lambda item: item.get("aqi") or 0, reverse=True)
