@@ -7,11 +7,11 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 
 - Repository root: `D:\bigdata2`
 - Current branch: `main`
-- Latest commit: `bea339fe1ee6d8f8c4f0832be5a09bd55269ce75 final 3`
-- Working tree: modified `app/main.py`, `scripts/train_forecast_spark.py`, `src/aqi.py`, `src/io.py`, `tests/test_api_phase3.py`, `tests/test_aqi.py`, `tests/test_forecast_outputs.py`, `tests/test_storage_phase2.py`, and `docs/AGENT_HANDOFF.md`; untracked `.claude/`; regenerated `data/`, `models`, and `logs/` are ignored
-- Active phase: Phase 5 verification/documentation after Phase 2-4 implementation work
-- Active task: corrective hardening pass for measurement normalization, AQI non-finite inputs, forecast AQI output robustness, and API behavior when measurement storage is unavailable
-- Last updated: 2026-07-10
+- Latest commit: `c1ef3d426f302d38c817fbf05f6cda523dde2eca nâng cấp hệ thống`
+- Working tree: modified `README.md`, `app/static/index.html`, `app/static/styles.css`, `app/static/app.js`, `docs/AGENT_HANDOFF.md`, `src/config.py`, `tests/test_frontend_static.py`; untracked `scripts/run_api.py`, `tests/test_config.py`, and `.claude/`; generated screenshots/logs under `logs/` are ignored
+- Active phase: Phase 4 frontend redesign polish plus Phase 5 verification/documentation
+- Active task: resumed UI beautification with GitHub `taste-skill`, added optional TP.HCM OpenStreetMap basemap with local fallback, and fixed the local API/dashboard port to `127.0.0.1:8000`
+- Last updated: 2026-07-11
 - Last agent: Agent: Codex
 
 ## 2. Phase Status
@@ -21,8 +21,8 @@ Mutable execution-state document for Claude Code, OpenAI Codex, or another codin
 | Phase 1 - Correctness Foundation | COMPLETED | YES | Full pytest passes; Spark feature/AQI tests cover hourly regularization, H+1..H+24, timezone, AQI edge cases |
 | Phase 2 - Ingestion, Storage, ML Evaluation | HDFS_VERIFIED | PARTIAL | Unit/integration tests pass; real HDFS read/write/append-dedup/delete passed; HDFS-backed training completed; OpenAQ API smoke passed but full ingestion was not run |
 | Phase 3 - Backend APIs and Freshness | COMPLETED | YES | API tests and HTTP verification pass; `/api/current` and `/api/health` now support HDFS measurements |
-| Phase 4 - Frontend via /taste | LOCAL_VERIFIED | YES_LOCAL | `/taste` skill was unavailable; used `impeccable` design context instead. Browser QA passed desktop/mobile with local static assets |
-| Phase 5 - Verification and Documentation | IN_PROGRESS | PARTIAL | README and handoff updated; HDFS verified; OpenAQ authenticated API smoke verified; full OpenAQ measurement ingestion not run |
+| Phase 4 - Frontend Redesign | LOCAL_VERIFIED | YES_LOCAL | Leaflet map-first UI polished in this pass; Current/Forecast switch, H+1..H+24, RF/GBT selector, KPIs, metrics, hotspots, freshness, responsive behavior verified by Playwright desktop/mobile |
+| Phase 5 - Verification and Documentation | IN_PROGRESS | PARTIAL | Full pytest passes; handoff updated; full OpenAQ measurement ingestion not run in this pass |
 
 Do not mark full OpenAQ measurement ingestion complete until it is deliberately run and recorded.
 
@@ -276,17 +276,27 @@ Artifact note:
 
 ## 4. Current In-Progress Work
 
-### Task: Phase 5 verification and final polish
+### Task: Phase 4 taste-skill map polish and fixed local server port
 
-- Current state: latest corrective hardening pass is implemented; full pytest passes with 53 tests.
-- Files involved in the latest corrective pass: `app/main.py`, `scripts/train_forecast_spark.py`, `src/aqi.py`, `src/io.py`, `tests/test_api_phase3.py`, `tests/test_aqi.py`, `tests/test_forecast_outputs.py`, `tests/test_storage_phase2.py`, `docs/AGENT_HANDOFF.md`.
-- Verified fixes in this pass:
-  - Measurement normalization now drops missing/blank placeholder pollutant parameters instead of storing literal `none`/`nan` partitions.
-  - AQI calculation now returns `None` for non-finite concentrations instead of returning hazardous AQI 500 for `NaN` or raising on `Infinity`.
-  - Forecast JSON output now handles rows with no supported AQI scores by writing `aqi: null` and `category: unknown` instead of crashing.
-  - `/api/current` and current-mode `/api/hotspots` now return empty degraded payloads with a read error when measurement storage is unavailable instead of raising a 500.
-- Blocker: full OpenAQ measurement ingestion into the current HDFS dataset has not been run because it would mutate the verified dataset.
-- Next technical action: review and commit the hardening diff; optionally run a bounded real OpenAQ measurement ingestion into HDFS if dataset mutation is desired.
+- Current state: UI polish is implemented and browser-verified; optional TP.HCM OpenStreetMap basemap is implemented with local fallback; local API/dashboard run script is fixed to `127.0.0.1:8000`; full pytest passes with 55 tests.
+- Files involved in the latest pass: `app/static/index.html`, `app/static/styles.css`, `app/static/app.js`, `src/config.py`, `scripts/run_api.py`, `tests/test_config.py`, `tests/test_frontend_static.py`, `README.md`, `docs/AGENT_HANDOFF.md`.
+- Verified work in this pass:
+  - Reworked the dashboard into a stronger map-first civic operations view while preserving Leaflet and existing API endpoints.
+  - Local canvas base map now includes subtle grid/river/road context and district labels, so the map no longer appears blank when remote tiles are unavailable.
+  - Vietnamese UI labels and microcopy were cleaned up for Current/Forecast, KPIs, artifact status, model/horizon controls, AQI legend, metrics, and hotspots.
+  - Forecast controls show RF/GBT selector, H+1 through H+24 slider, MAE/RMSE/R2 metrics, hotspot list, and target timestamp status.
+  - Current mode was browser-verified against local HDFS-backed API data with 19 rendered points.
+  - Added `scripts/run_api.py` so the official local server command always binds `127.0.0.1:8000`.
+  - Replaced README server commands with `python scripts/run_api.py`.
+  - Installed and read GitHub `Leonxlnx/taste-skill` skills: `gpt-tasteskill` and default `taste-skill`.
+  - Applied `taste-skill` as a targeted dashboard redesign aid, while preserving repository constraints that override landing-page/React/GSAP recommendations.
+  - Added TP.HCM / Local basemap controls.
+  - Added optional OpenStreetMap TP.HCM tile layer with auto-probe and local generated basemap fallback.
+  - Updated frontend static test to require local fallback behavior while allowing the optional OSM tile layer.
+- Known risks:
+  - Playwright in the restricted sandbox reports one blocked OpenStreetMap tile-probe request (`ERR_NETWORK_ACCESS_DENIED`), then stays on the local fallback basemap. This is expected in sandbox and is not a runtime failure of the local fallback.
+  - Full OpenAQ measurement ingestion into the current HDFS dataset was not run because this pass did not request dataset mutation.
+- Next technical action: open `http://127.0.0.1:8000`, click the `TP.HCM` basemap button on a machine with internet access, review the UI diff in a browser, then commit the frontend/port polish if accepted.
 
 ## 5. Data and Schema State
 
@@ -400,6 +410,15 @@ Current API points include:
 - `python -m pytest tests\test_spark_features.py tests\test_forecast_outputs.py` -> 18 passed
 - `python -m pytest` -> 43 passed after P1 merge identity fix
 - Forecast artifact inspection after P1 fix: existing `data\predictions\forecast_24h.json` still has 5,856 rows and lacks `grid_lat`, `forecast_origin_ts`, and `target_ts`
+- `python -m pytest tests\test_frontend_static.py` -> 1 passed after frontend polish
+- Local uvicorn QA used a temporary non-default port during the previous browser pass; current fixed API/dashboard port is now `8000`
+- `python -m pytest tests\test_config.py tests\test_frontend_static.py tests\test_api_phase3.py` -> 7 passed after adding fixed-port run script
+- `python scripts\run_api.py` via background `Start-Process` -> `/api/health` returned HTTP 200 on `http://127.0.0.1:8000`
+- `python -m pytest` -> 55 passed in 172.20 seconds after fixed-port changes
+- Playwright Chromium QA after polish -> desktop current, desktop forecast, and mobile forecast screenshots written to `logs/ui-polished-currentDesktop.png`, `logs/ui-polished-forecastDesktop.png`, and `logs/ui-polished-forecastMobile.png`
+- Playwright QA result -> current 19 points, forecast 19 points, forecast metrics MAE `9.35`, RMSE `11.95`, R2 `0.53`, no horizontal overflow desktop/mobile, Canvas2D warnings only
+- `python -m pytest tests\test_frontend_static.py tests\test_api_phase3.py` -> 5 passed
+- `python -m pytest` -> 53 passed in 177.50 seconds
 
 ### Failed or Partial Commands
 
@@ -427,14 +446,16 @@ Current API points include:
 | Integration tests | PASS | `tests/test_train_forecast_integration.py` passed with longer timeout |
 | Runtime API smoke | PASS | After local HDFS restart, `TestClient` returned `/api/health` `ok`, `/api/current` 19, `/api/forecast` 19, current hotspots 3, metrics 48 |
 | Frontend static dependency test | PASS | `tests/test_frontend_static.py` verifies dashboard runtime assets are local |
-| Frontend browser verification | PASS | Playwright headless Chromium desktop/mobile QA passed; no console errors, no failed requests, no horizontal overflow |
+| Frontend browser verification | PASS_WITH_WARNINGS | Playwright headless Chromium desktop/mobile QA passed with current/forecast data and no horizontal overflow; Canvas2D heatmap warnings only, no console errors |
+| Fixed local server port | PASS | `scripts/run_api.py` binds `127.0.0.1:8000`; `/api/health` returned HTTP 200 on port 8000 |
+| Optional TP.HCM basemap | PASS_WITH_SANDBOX_LIMITATION | OSM tile layer and TP.HCM/Local controls implemented; sandbox blocks the external tile probe and verified local fallback remains active |
 
 ## 8. Exact Next Step
 
 Primary next action:
 
 ```text
-Review and commit the hardening diff; optionally run a bounded real OpenAQ measurement ingestion into HDFS if dataset mutation is desired.
+Review `http://127.0.0.1:8000` in a browser, test `TP.HCM` basemap on an internet-enabled machine, and commit the frontend/fixed-port diff if accepted. Do not run full OpenAQ ingestion unless dataset mutation is explicitly desired.
 ```
 
 ## 9. Instructions for the Next Agent
@@ -449,6 +470,153 @@ Review and commit the hardening diff; optionally run a bounded real OpenAQ measu
 8. Update this handoff after meaningful progress.
 
 ## 10. Update Log
+
+### 2026-07-11 - Agent: Codex
+
+Phase:
+
+- Phase 4 taste-skill map polish and Phase 5 verification/documentation
+
+Work:
+
+- User provided GitHub repo `Leonxlnx/taste-skill` and requested using taste skill instead of impeccable for the map.
+- Installed `gpt-tasteskill` and default `taste-skill` from the GitHub repo using the Codex skill installer.
+- Read both installed `SKILL.md` files.
+- Applied the default `design-taste-frontend` guidance as a targeted redesign aid. The skill explicitly says it is not primarily for dashboards, so repository constraints remained higher priority: preserve Leaflet, preserve existing dashboard IA, no framework migration, no GSAP dependency, no fabricated values.
+- Added a TP.HCM / Local basemap switch to the dashboard.
+- Added optional OpenStreetMap tile layer for a real TP.HCM basemap.
+- Kept the generated local basemap as the default-safe fallback.
+- Added an auto-probe for one OSM tile: if external tiles are reachable, the app switches to TP.HCM; if blocked, it stays on Local.
+- Updated frontend static regression coverage to allow the optional OSM tile layer but require local fallback and tile error handling.
+- Updated README frontend documentation to describe the optional online TP.HCM basemap and local fallback honestly.
+
+Files changed:
+
+- `app/static/index.html`
+- `app/static/styles.css`
+- `app/static/app.js`
+- `tests/test_frontend_static.py`
+- `README.md`
+- `docs/AGENT_HANDOFF.md`
+
+Commands:
+
+- `python "C:\Users\HOMIE PC\.codex\skills\.system\skill-installer\scripts\install-skill-from-github.py" --repo Leonxlnx/taste-skill --path skills/gpt-tasteskill` -> installed.
+- `Get-Content C:\Users\HOMIE PC\.codex\skills\gpt-tasteskill\SKILL.md`
+- `python "C:\Users\HOMIE PC\.codex\skills\.system\skill-installer\scripts\install-skill-from-github.py" --repo Leonxlnx/taste-skill --path skills/taste-skill` -> installed.
+- `Get-Content C:\Users\HOMIE PC\.codex\skills\taste-skill\SKILL.md`
+- `python -m pytest tests\test_frontend_static.py tests\test_config.py tests\test_api_phase3.py` -> 7 passed.
+- Playwright QA on `http://127.0.0.1:8000/` -> local fallback active in sandbox; no horizontal overflow; 19 current points rendered.
+- Playwright screenshot written to `logs/ui-taste-map-auto.png`.
+- `python -m pytest` -> 55 passed in 170.54 seconds after the final basemap-probe adjustment.
+- `/api/health` on `http://127.0.0.1:8000` -> HTTP 200.
+
+Browser QA:
+
+- Sandbox blocked the external OpenStreetMap probe with `ERR_NETWORK_ACCESS_DENIED`.
+- The dashboard correctly stayed on the Local basemap fallback.
+- The `TP.HCM` button remains available for internet-enabled runs; in sandbox, manual click reports the blocked basemap and keeps Local active.
+- No horizontal overflow was observed.
+
+Result:
+
+- Optional TP.HCM real basemap is implemented.
+- Local fallback remains functional when external map tiles are unavailable.
+- Full automated suite passes: 55 tests.
+- Full OpenAQ measurement ingestion was NOT_RUN.
+- No push or commit was performed.
+
+### 2026-07-11 - Agent: Codex
+
+Phase:
+
+- Phase 4/5 local runtime polish
+
+Work:
+
+- User requested changing the temporary QA port to a fixed `8000`.
+- Added `app_host` and `app_port` to `src/config.py` with fixed values `127.0.0.1` and `8000`.
+- Added `scripts/run_api.py` as the official server launcher; it inserts the repository root into `sys.path` so direct execution works on Windows.
+- Added `tests/test_config.py` regression coverage for the fixed host/port and direct script loading.
+- Replaced README server commands with `python scripts/run_api.py`.
+- Removed current handoff references that could make the previous temporary QA port look like the active server port; current fixed port is `8000`.
+
+Files changed:
+
+- `src/config.py`
+- `scripts/run_api.py`
+- `tests/test_config.py`
+- `README.md`
+- `docs/AGENT_HANDOFF.md`
+
+Commands:
+
+- `rg -n "8000|uvicorn|port" .`
+- `python -m pytest tests\test_config.py tests\test_frontend_static.py tests\test_api_phase3.py` -> 7 passed
+- First `scripts\run_api.py` runtime attempt failed with `ModuleNotFoundError: No module named 'src'`; fixed by adding the repository root to `sys.path`.
+- `python scripts\run_api.py` via background `Start-Process` -> `/api/health` returned HTTP 200 on `http://127.0.0.1:8000`.
+- `python -m pytest` -> 55 passed in 172.20 seconds.
+- Current-port search after cleanup confirmed no active docs or scripts point to the previous temporary QA port or the old direct uvicorn command.
+
+Result:
+
+- The official local API/dashboard launcher is fixed to `http://127.0.0.1:8000`.
+- A local server is currently running on port `8000` from `scripts/run_api.py`; PID file: `logs/api-8000.pid`.
+- No push or commit was performed.
+
+### 2026-07-11 - Agent: Codex
+
+Phase:
+
+- Phase 4 frontend polish and Phase 5 verification/documentation
+
+Work:
+
+- Resumed the interrupted UI beautification pass requested by the user.
+- Verified actual repository state first: branch `main`, HEAD `c1ef3d426f302d38c817fbf05f6cda523dde2eca nâng cấp hệ thống`, source diff initially limited to frontend static files, untracked `.claude/`.
+- Reworked `app/static/index.html`, `app/static/styles.css`, and `app/static/app.js` into a more polished map-first dashboard while preserving Leaflet and the existing backend API contract.
+- Added a local canvas base map treatment with grid, river/road context, district labels, stronger AQI markers/heat layer, and tighter map/panel hierarchy.
+- Improved Vietnamese UI copy for mode switch, KPI labels, artifact/freshness states, model/horizon controls, AQI legend, metrics, and hotspots.
+- Kept real data behavior: no fabricated current values, forecast values, metrics, model scores, or timestamps.
+- Updated this handoff with the current Git state, commands, test evidence, browser QA evidence, and remaining risks.
+
+Files changed:
+
+- `app/static/index.html`
+- `app/static/styles.css`
+- `app/static/app.js`
+- `docs/AGENT_HANDOFF.md`
+
+Commands:
+
+- `Get-Content docs\IMPLEMENTATION_PLAN.md`
+- `Get-Content docs\AGENT_HANDOFF.md`
+- `Get-Content docs\ARCHITECTURE.md`
+- `git status --short`
+- `git diff --stat`
+- `git log --oneline -n 10`
+- `git rev-parse HEAD`
+- `git show -s --format="%H%n%s" HEAD`
+- `git diff -- app/static/index.html app/static/styles.css app/static/app.js`
+- `python -m pytest tests\test_frontend_static.py` -> 1 passed
+- Local uvicorn QA used a temporary non-default port during the previous browser pass; current fixed API/dashboard port is now `8000`
+- Playwright Chromium QA -> screenshots written to `logs/ui-polished-currentDesktop.png`, `logs/ui-polished-forecastDesktop.png`, `logs/ui-polished-forecastMobile.png`
+- `python -m pytest tests\test_frontend_static.py tests\test_api_phase3.py` -> 5 passed
+- `python -m pytest` -> 53 passed in 177.50 seconds
+
+Browser QA:
+
+- Desktop Current: 19 points, max AQI 141, current artifact timestamp `10:00 09-07`, no horizontal overflow.
+- Desktop Forecast: 19 points, H+1, RF selected, metrics MAE `9.35`, RMSE `11.95`, R2 `0.53`, no horizontal overflow.
+- Mobile Forecast: controls, KPIs, metrics, and hotspots render without horizontal overflow at 390px width.
+- Console result: Canvas2D `willReadFrequently` warnings from the heatmap path only; no console errors were observed.
+
+Result:
+
+- Full automated suite passes: 53 tests.
+- Frontend browser QA passes for the core current/forecast flows.
+- Full OpenAQ measurement ingestion was NOT_RUN.
+- No push or commit was performed.
 
 ### 2026-07-10 - Agent: Codex
 

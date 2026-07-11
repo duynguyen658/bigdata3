@@ -245,7 +245,7 @@ python scripts/train_forecast_spark.py
 Start the API and dashboard:
 
 ```powershell
-uvicorn app.main:app --reload
+python scripts/run_api.py
 ```
 
 Open:
@@ -536,7 +536,7 @@ category
 Start the server:
 
 ```powershell
-uvicorn app.main:app --reload
+python scripts/run_api.py
 ```
 
 Base URL:
@@ -697,7 +697,7 @@ Health status:
 
 The frontend is a static Leaflet dashboard served from `app/static`.
 
-Runtime map assets are vendored under `app/static/vendor`, so the dashboard does not require CDN access for Leaflet, heatmap rendering, marker images, fonts, or base map tiles during local verification.
+Leaflet, heatmap rendering, marker images, and fonts are vendored under `app/static/vendor`. The dashboard can optionally load OpenStreetMap tiles for a real TP.HCM basemap; when that network layer is unavailable, it falls back to the local generated basemap.
 
 Implemented UI behavior:
 
@@ -710,10 +710,11 @@ Implemented UI behavior:
 - Ranked hotspot panel.
 - Metrics display when `metrics.json` is available.
 - Empty and missing-artifact states.
+- TP.HCM / Local basemap switch.
 
 The dashboard expects the FastAPI server to provide data. It does not fabricate missing values.
 
-Browser QA has been run with a local FastAPI server and Playwright headless Chromium. Desktop and mobile checks passed with no console errors, no failed network requests, visible current/forecast data, visible metrics, visible hotspots, and no horizontal overflow.
+Browser QA has been run with a local FastAPI server and Playwright headless Chromium. Desktop and mobile checks passed with visible current/forecast data, visible metrics, visible hotspots, basemap fallback behavior, and no horizontal overflow. In the restricted sandbox, the OpenStreetMap tile probe is blocked and the dashboard correctly stays on the local basemap.
 
 ## HDFS Usage
 
@@ -791,7 +792,7 @@ On Windows, PySpark tests may require running outside restrictive sandboxes beca
 
 ```powershell
 python scripts/generate_sample_data.py --sensors 120 --days 7 --overwrite
-uvicorn app.main:app --reload
+python scripts/run_api.py
 ```
 
 This is enough to test `/api/current` and the Current dashboard mode.
@@ -801,7 +802,7 @@ This is enough to test `/api/current` and the Current dashboard mode.
 ```powershell
 python scripts/generate_sample_data.py --sensors 120 --days 7 --overwrite
 python scripts/train_forecast_spark.py
-uvicorn app.main:app --reload
+python scripts/run_api.py
 ```
 
 This should produce:
@@ -820,7 +821,7 @@ Default model sizes may run slowly on Windows local Spark. Use the `AQI_RF_*` an
 ```powershell
 python scripts/ingest_openaq.py --datetime-from 2026-07-01T00:00:00Z --datetime-to 2026-07-08T00:00:00Z --limit-locations 80
 python scripts/train_forecast_spark.py
-uvicorn app.main:app --reload
+python scripts/run_api.py
 ```
 
 Do this only after setting `OPENAQ_API_KEY`.
@@ -835,7 +836,7 @@ $env:AQI_GBT_MAX_ITER='8'
 $env:AQI_GBT_MAX_DEPTH='3'
 $env:AQI_GBT_STEP_SIZE='0.1'
 python scripts/train_forecast_spark.py
-uvicorn app.main:app --reload
+python scripts/run_api.py
 ```
 
 With `.env` configured for `HDFS_BASE_PATH=hdfs://localhost:9000/aqi-hcmc`, the latest verified run produced:

@@ -16,6 +16,8 @@ def _env(name: str, default: str = "") -> str:
 
 @dataclass(frozen=True)
 class Settings:
+    app_host: str = "127.0.0.1"
+    app_port: int = 8000
     openaq_api_key: str = _env("OPENAQ_API_KEY")
     openaq_base_url: str = _env("OPENAQ_BASE_URL", "https://api.openaq.org/v3").rstrip("/")
     hcmc_bbox: str = _env("HCMC_BBOX", "106.45,10.35,107.05,11.15")

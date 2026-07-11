@@ -11,7 +11,9 @@ def test_frontend_runtime_assets_are_local():
     assert "https://unpkg.com" not in index
     assert "https://fonts.googleapis.com" not in index
     assert "https://fonts.gstatic.com" not in index
-    assert "https://{s}.tile.openstreetmap.org" not in app_js
+    assert "https://{s}.tile.openstreetmap.org" in app_js
+    assert "Local AQI grid" in app_js
+    assert "tileerror" in app_js
 
     assert "/static/vendor/leaflet.css" in index
     assert "/static/vendor/leaflet.js" in index

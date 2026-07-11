@@ -9,51 +9,59 @@
   </head>
   <body>
     <main class="shell">
-      <section class="map-zone" aria-label="Ban do nhiet AQI TP.HCM">
+      <section class="map-zone" aria-label="Bản đồ nhiệt AQI TP.HCM">
         <div id="map"></div>
 
         <header class="topbar">
           <div class="brand">
             <p class="eyebrow">OpenAQ + Spark MLlib</p>
-            <h1>TP.HCM AQI</h1>
+            <h1>AQI TP.HCM</h1>
+            <p class="brand-subtitle">PM2.5 / PM10 · Asia/Ho_Chi_Minh</p>
           </div>
-          <div class="mode-switch" role="group" aria-label="Che do hien thi">
-            <button class="mode-button is-active" type="button" data-mode="current">Current</button>
-            <button class="mode-button" type="button" data-mode="forecast">Forecast</button>
+          <div class="top-actions">
+            <div class="mode-switch" role="group" aria-label="Chế độ hiển thị">
+              <button class="mode-button is-active" type="button" data-mode="current">Hiện tại</button>
+              <button class="mode-button" type="button" data-mode="forecast">Dự báo</button>
+            </div>
+            <div class="map-style-switch" role="group" aria-label="Nền bản đồ">
+              <button class="map-style-button" type="button" data-basemap="city">TP.HCM</button>
+              <button class="map-style-button is-active" type="button" data-basemap="local">Local</button>
+            </div>
           </div>
         </header>
 
-        <section class="kpis" aria-label="Tom tat du lieu">
+        <section class="kpis" aria-label="Tóm tắt dữ liệu">
           <div>
-            <span>Max AQI</span>
+            <span>AQI cao nhất</span>
             <strong id="max-aqi">--</strong>
           </div>
           <div>
-            <span>Diem luoi</span>
+            <span>Điểm lưới</span>
             <strong id="point-count">--</strong>
           </div>
           <div>
-            <span>Moc du lieu</span>
+            <span>Mốc dữ liệu</span>
             <strong id="data-as-of">--</strong>
           </div>
           <div>
-            <span>Trang thai</span>
+            <span>Trạng thái</span>
             <strong id="freshness">--</strong>
           </div>
         </section>
 
-        <aside class="panel" aria-label="Dieu khien ban do">
+        <aside class="panel" aria-label="Điều khiển bản đồ">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">Heatmap</p>
-              <h2 id="panel-title">Current AQI</h2>
+              <p class="eyebrow" id="mode-eyebrow">Heatmap hiện tại</p>
+              <h2 id="panel-title">AQI hiện tại</h2>
             </div>
-            <div class="status" id="status">Dang tai...</div>
+            <div class="status" id="status">Đang tải...</div>
           </div>
+          <p class="artifact-note" id="artifact-note">--</p>
 
           <div class="forecast-controls" id="forecast-controls">
             <label class="control">
-              <span>Mo hinh</span>
+              <span>Mô hình</span>
               <select id="model">
                 <option value="random_forest">Random Forest</option>
                 <option value="gbt">GBTRegressor</option>
@@ -65,15 +73,15 @@
             </label>
           </div>
 
-          <div class="legend" aria-label="Chu giai AQI">
-            <span class="good">0-50</span>
-            <span class="moderate">51-100</span>
-            <span class="sensitive">101-150</span>
-            <span class="unhealthy">151-200</span>
-            <span class="severe">201+</span>
+          <div class="legend" aria-label="Chú giải AQI">
+            <span class="good"><b>Tốt</b><small>0-50</small></span>
+            <span class="moderate"><b>TB</b><small>51-100</small></span>
+            <span class="sensitive"><b>Nhạy cảm</b><small>101-150</small></span>
+            <span class="unhealthy"><b>Xấu</b><small>151-200</small></span>
+            <span class="severe"><b>Rất xấu</b><small>201+</small></span>
           </div>
 
-          <section class="metrics-strip" aria-label="Chi so danh gia mo hinh">
+          <section class="metrics-strip" aria-label="Chỉ số đánh giá mô hình">
             <div>
               <span>MAE</span>
               <strong id="metric-mae">--</strong>
@@ -88,7 +96,7 @@
             </div>
           </section>
 
-          <section class="hotspot-section" aria-label="Diem nong AQI">
+          <section class="hotspot-section" aria-label="Điểm nóng AQI">
             <div class="section-title">
               <span>Hotspots</span>
               <span id="hotspot-context">--</span>
